@@ -23,7 +23,7 @@ Needs Python 3.8+ (standard library only — nothing to `pip install`) and a mod
 python backend/server.py
 ```
 
-Then open **http://127.0.0.1:8000/**. Use `--port 8080` to change the port. The server binds to 127.0.0.1 only.
+Then open **http://xxx.x.x.x:8000/**. Use `--port 8080` to change the port. The server binds to 127.0.0.1 only.
 
 Opening `index.html` directly from disk does not work: browsers block reading the local `config/*.json` files. The page shows a message telling you to start the server.
 
