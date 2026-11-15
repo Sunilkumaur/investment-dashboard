@@ -5,50 +5,162 @@
     "defaultCapital": 9000,
     "defaultMonthlySip": 0,
     "defaultHorizonYears": 10,
-    "horizonOptions": [5, 7, 10],
+    "horizonOptions": [
+      5,
+      7,
+      10
+    ],
     "defaultScenario": "m",
     "defaultInflationPct": 5,
     "defaultProfile": "balanced",
     "maxFundsForSmallCapital": 4,
     "smallCapitalThreshold": 50000
   },
-
   "scenarios": {
-    "c": { "label": "Conservative", "description": "Below long-run averages; e.g. a poor decade for equities." },
-    "m": { "label": "Moderate",     "description": "Roughly long-run Indian averages after a full market cycle." },
-    "o": { "label": "Optimistic",   "description": "Above-average decade. Do not plan around this." }
+    "c": {
+      "label": "Conservative",
+      "description": "Below long-run averages; e.g. a poor decade for equities."
+    },
+    "m": {
+      "label": "Moderate",
+      "description": "Roughly long-run Indian averages after a full market cycle."
+    },
+    "o": {
+      "label": "Optimistic",
+      "description": "Above-average decade. Do not plan around this."
+    }
   },
   "scenarioNote": "Scenario returns are USER-EDITABLE ASSUMPTIONS of the fund's portfolio return BEFORE its expense ratio. They are not forecasts and are not derived from any single fund's past CAGR. The fund's expense ratio is subtracted to get the NAV return.",
-
   "profiles": {
     "conservative": {
       "label": "Conservative",
       "summary": "Capital safety first; ~50% equity, rest in low-volatility debt/arbitrage and gold.",
       "sleeves": [
-        { "id": "core",      "label": "Core large-cap equity",  "categories": ["index_largecap"], "pct": 35 },
-        { "id": "diverse",   "label": "Diversified equity",     "categories": ["index_broad", "flexi"], "pct": 15 },
-        { "id": "stability", "label": "Stability sleeve",       "categories": ["gilt", "debt_corporate", "arbitrage"], "pct": 35, "fallbackTo": "core" },
-        { "id": "gold",      "label": "Gold diversifier",       "categories": ["gold_fof", "gold_etf"], "pct": 15, "fallbackTo": "stability" }
+        {
+          "id": "core",
+          "label": "Core large-cap equity",
+          "categories": [
+            "index_largecap"
+          ],
+          "pct": 35
+        },
+        {
+          "id": "diverse",
+          "label": "Diversified equity",
+          "categories": [
+            "index_broad",
+            "flexi"
+          ],
+          "pct": 15
+        },
+        {
+          "id": "stability",
+          "label": "Stability sleeve",
+          "categories": [
+            "gilt",
+            "debt_corporate",
+            "arbitrage"
+          ],
+          "pct": 35,
+          "fallbackTo": "core"
+        },
+        {
+          "id": "gold",
+          "label": "Gold diversifier",
+          "categories": [
+            "gold_fof",
+            "gold_etf"
+          ],
+          "pct": 15,
+          "fallbackTo": "stability"
+        }
       ]
     },
     "balanced": {
       "label": "Balanced",
       "summary": "~65% equity for growth, with stability and gold sleeves to soften drawdowns.",
       "sleeves": [
-        { "id": "core",      "label": "Core large-cap equity",  "categories": ["index_largecap"], "pct": 40 },
-        { "id": "diverse",   "label": "Diversified equity",     "categories": ["flexi", "index_broad"], "pct": 25 },
-        { "id": "stability", "label": "Stability sleeve",       "categories": ["gilt", "debt_corporate", "arbitrage"], "pct": 20, "fallbackTo": "core" },
-        { "id": "gold",      "label": "Gold diversifier",       "categories": ["gold_fof", "gold_etf"], "pct": 15, "fallbackTo": "core" }
+        {
+          "id": "core",
+          "label": "Core large-cap equity",
+          "categories": [
+            "index_largecap"
+          ],
+          "pct": 40
+        },
+        {
+          "id": "diverse",
+          "label": "Diversified equity",
+          "categories": [
+            "flexi",
+            "index_broad"
+          ],
+          "pct": 25
+        },
+        {
+          "id": "stability",
+          "label": "Stability sleeve",
+          "categories": [
+            "gilt",
+            "debt_corporate",
+            "arbitrage"
+          ],
+          "pct": 20,
+          "fallbackTo": "core"
+        },
+        {
+          "id": "gold",
+          "label": "Gold diversifier",
+          "categories": [
+            "gold_fof",
+            "gold_etf"
+          ],
+          "pct": 15,
+          "fallbackTo": "core"
+        }
       ]
     },
     "growth": {
       "label": "Growth",
       "summary": "~85% equity incl. mid/small caps; expect deep interim falls. Only for 7–10+ year money.",
       "sleeves": [
-        { "id": "core",      "label": "Core large-cap equity",  "categories": ["index_largecap"], "pct": 35 },
-        { "id": "diverse",   "label": "Diversified equity",     "categories": ["flexi", "index_broad"], "pct": 30 },
-        { "id": "satellite", "label": "Mid/small-cap satellite","categories": ["midcap", "smallcap"], "pct": 20, "fallbackTo": "diverse" },
-        { "id": "gold",      "label": "Gold diversifier",       "categories": ["gold_fof", "gold_etf"], "pct": 15, "fallbackTo": "core" }
+        {
+          "id": "core",
+          "label": "Core large-cap equity",
+          "categories": [
+            "index_largecap"
+          ],
+          "pct": 35
+        },
+        {
+          "id": "diverse",
+          "label": "Diversified equity",
+          "categories": [
+            "flexi",
+            "index_broad"
+          ],
+          "pct": 30
+        },
+        {
+          "id": "satellite",
+          "label": "Mid/small-cap satellite",
+          "categories": [
+            "midcap",
+            "smallcap"
+          ],
+          "pct": 20,
+          "fallbackTo": "diverse"
+        },
+        {
+          "id": "gold",
+          "label": "Gold diversifier",
+          "categories": [
+            "gold_fof",
+            "gold_etf"
+          ],
+          "pct": 15,
+          "fallbackTo": "core"
+        }
       ]
     }
   },
@@ -59,41 +171,52 @@
     "preferLowerTaxDragForStabilityWhenSlabAbove": 20,
     "roundAmountsTo": 100
   },
-
   "scoring": {
     "note": "Each component is ranked against funds in the same asset class (equity / debt / gold / hybrid) and scaled 0–100. Missing data scores 50 (neutral) and is flagged. Past performance does not predict future returns.",
     "weights": {
-      "consistency":   20,
-      "riskAdjusted":  20,
-      "downside":      15,
-      "cost":          15,
-      "scaleHistory":  15,
-      "return":        15
+      "consistency": 20,
+      "riskAdjusted": 20,
+      "downside": 15,
+      "cost": 15,
+      "scaleHistory": 15,
+      "return": 15
     },
     "labels": {
-      "consistency":  "Consistency (rolling 3-yr CAGR: median & % of windows beating the risk-free proxy)",
+      "consistency": "Consistency (rolling 3-yr CAGR: median & % of windows beating the risk-free proxy)",
       "riskAdjusted": "Risk-adjusted return (3-yr Sortino ratio)",
-      "downside":     "Downside control (5-yr maximum drawdown)",
-      "cost":         "Cost (expense ratio)",
+      "downside": "Downside control (5-yr maximum drawdown)",
+      "cost": "Cost (expense ratio)",
       "scaleHistory": "Scale & track record (AUM and years of NAV history)",
-      "return":       "Long-run return (5-yr CAGR, else 3-yr)"
+      "return": "Long-run return (5-yr CAGR, else 3-yr)"
     }
   },
-
   "riskFree": {
     "proxySchemeCode": 143269,
     "proxyLabel": "Parag Parikh Liquid Fund (Direct) trailing 3-yr CAGR",
-    "fallbackPct": 6.0,
+    "fallbackPct": 6,
     "note": "Sharpe/Sortino use the liquid fund's own trailing return as a risk-free proxy; if unavailable, the fallback assumption is used and flagged."
   },
-
   "correctionWindows": [
-    { "id": "covid",   "label": "COVID crash",                    "from": "2020-01-17", "to": "2020-03-23" },
-    { "id": "rates22", "label": "2021–22 rate-hike drawdown",     "from": "2021-10-18", "to": "2022-06-17" },
-    { "id": "fpi2425", "label": "Sep 2024 – Mar 2025 correction", "from": "2024-09-26", "to": "2025-03-03" }
+    {
+      "id": "covid",
+      "label": "COVID crash",
+      "from": "2020-01-17",
+      "to": "2020-03-23"
+    },
+    {
+      "id": "rates22",
+      "label": "2021–22 rate-hike drawdown",
+      "from": "2021-10-18",
+      "to": "2022-06-17"
+    },
+    {
+      "id": "fpi2425",
+      "label": "Sep 2024 – Mar 2025 correction",
+      "from": "2024-09-26",
+      "to": "2025-03-03"
+    }
   ],
   "correctionNote": "Window dates approximate Nifty 50 peak/trough dates and are editable here. Fund returns over each window are computed from AMFI NAVs on or before each date.",
-
   "charges": {
     "mfBrokerage": 0,
     "mfNote": "Direct plans bought from the AMC/RTA or a direct platform: no brokerage, no demat/DP charge. Stamp duty and STT come from config/tax-rules.json.",
@@ -108,7 +231,6 @@
     "etfNote": "Brokerage ₹0 matches discount-broker delivery pricing; set your broker's actual charge. Exchange charge is NSE cash-segment rate (verify with your broker's contract note). DP charge ₹13.50 + 18% GST per scrip per sell day is a typical discount-broker figure. Bid-ask spread is an estimate of the cost of crossing the spread on each trade.",
     "lastVerified": "2026-11-15"
   },
-
   "data": {
     "backendBase": "",
     "mfapiBase": "https://api.mfapi.in/mf/",
@@ -116,5 +238,110 @@
     "navStaleAfterDays": 4,
     "cacheStaleAfterHours": 24,
     "metricsCacheKey": "siird.metrics.v1"
+  },
+  "netWorth": {
+    "goldTrackSchemeCode": 140088,
+    "goldTrackLabel": "Nippon India ETF Gold BeES NAV (AMFI) — used only to move your entered gold price with the market",
+    "schemes": {
+      "PPF": {
+        "label": "Public Provident Fund",
+        "ratePct": 7.1,
+        "taxFree": true,
+        "asOf": "Oct–Dec 2026",
+        "lockIn": "15 years (partial withdrawal from year 7)",
+        "source": "https://www.business-standard.com/finance/personal-finance/ppf-rate-unchanged-at-7-1-what-investors-need-to-know-this-quarter-126100200411_1.html"
+      },
+      "EPF": {
+        "label": "Employees' Provident Fund",
+        "ratePct": 8.25,
+        "taxFree": true,
+        "asOf": "FY 2025-26",
+        "lockIn": "Until retirement/job change (conditions apply)",
+        "source": "https://www.angelone.in/news/personal-finance/epf-interest-rate-2025-26-stays-at-8-25-here-is-when-the-money-will-be-credited-to-your-epfo-account",
+        "note": "Interest on employee contributions above ₹2.5 lakh/yr is taxable — not modelled."
+      },
+      "VPF": {
+        "label": "Voluntary Provident Fund",
+        "ratePct": 8.25,
+        "taxFree": true,
+        "asOf": "FY 2025-26",
+        "lockIn": "As EPF"
+      },
+      "SSY": {
+        "label": "Sukanya Samriddhi Yojana",
+        "ratePct": 8.2,
+        "taxFree": true,
+        "asOf": "Oct–Dec 2026",
+        "lockIn": "Till girl turns 21 (partial at 18)",
+        "source": "https://upstox.com/news/personal-finance/investing/public-provident-fund-ppf-interest-rate-for-october-december-2026/article-201130/"
+      },
+      "NSC": {
+        "label": "National Savings Certificate",
+        "ratePct": 7.7,
+        "taxFree": false,
+        "asOf": "Oct–Dec 2026",
+        "lockIn": "5 years"
+      },
+      "SCSS": {
+        "label": "Senior Citizens' Savings Scheme",
+        "ratePct": 8.2,
+        "taxFree": false,
+        "asOf": "Oct–Dec 2026",
+        "lockIn": "5 years"
+      },
+      "KVP": {
+        "label": "Kisan Vikas Patra",
+        "ratePct": 7.5,
+        "taxFree": false,
+        "asOf": "Oct–Dec 2026",
+        "lockIn": "30 months min."
+      },
+      "NPS": {
+        "label": "National Pension System",
+        "ratePct": 10,
+        "taxFree": false,
+        "assumption": true,
+        "asOf": "assumption (market-linked)",
+        "lockIn": "Till age 60; 40% must buy an annuity",
+        "note": "Market-linked: the rate is YOUR assumption. At 60, 60% lump sum is tax-free; the annuity part is taxed as income later."
+      }
+    },
+    "defaults": {
+      "savingsRatePct": 2.5,
+      "emergencyMonths": 6,
+      "highInterestDebtPct": 10,
+      "fdPrematurePenaltyPct": 1,
+      "propertySellCostPct": 1,
+      "jewelleryBuybackDeductionPct": 5,
+      "coinBuybackDeductionPct": 2,
+      "digitalGoldSpreadPct": 3,
+      "insuranceBenchmarkPct": 7.1,
+      "regularPlanExtraTerPct": 0.75,
+      "sgbCouponPct": 2.5,
+      "stockSellCostPct": 0.12,
+      "growth": {
+        "property": {
+          "c": 4,
+          "m": 6,
+          "o": 8
+        },
+        "stocks": {
+          "c": 8,
+          "m": 12,
+          "o": 14
+        },
+        "ulip": {
+          "c": 7,
+          "m": 10,
+          "o": 12
+        },
+        "other": {
+          "c": 0,
+          "m": 0,
+          "o": 0
+        }
+      }
+    },
+    "note": "Rates for government schemes are sourced and dated; everything else (property value, growth, savings rate) is your assumption. Small-savings rates are reset every quarter."
   }
 }

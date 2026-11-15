@@ -25,10 +25,20 @@
 
 ▶ 13. Recommendation engine respects minimums, horizon and 100% total
 
+▶ 13b. Category auto-detection for custom AMFI schemes
+
+▶ 17. Net worth: valuation of each asset type
+
+▶ 18. Net worth: totals, liquidation tax and shared equity exemption
+
+▶ 18b. Planned investment as a net-worth component
+
+▶ 19. Money leaks
+
 ▶ 14. Data service: API failure, fallback and stale data
 
 ▶ 15. Portfolio tracker: multiple lots, FIFO, realized vs unrealized
 
 ▶ 16. XIRR
 
-131 passed, 0 failed
+178 passed, 0 failed

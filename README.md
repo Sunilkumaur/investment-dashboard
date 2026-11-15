@@ -6,7 +6,10 @@ A local, working decision-support tool for an Indian retail investor:
 * scores them on consistency, risk-adjusted return, drawdown, cost and track record (not on past return alone),
 * builds a **model allocation for ₹9,000** (Conservative / Balanced / Growth) that respects minimum investments and holding periods,
 * projects lump-sum + SIP outcomes over 5 / 7 / 10 / custom years in three scenarios,
-* and shows **what you actually receive after redemption** — expense ratio, exit load, stamp duty, STT, ETF charges and capital-gains tax (lot by lot, with set-off, exemption, surcharge and cess).
+* and shows **what you actually receive after redemption** — expense ratio, exit load, stamp duty, STT, ETF charges and capital-gains tax (lot by lot, with set-off, exemption, surcharge and cess),
+* lets you add **any of ~10,000 AMFI schemes as a custom fund** (search fills the scheme code, AMC and category; you confirm expense ratio, exit load and expected returns),
+* tracks your **whole net worth** — FDs, gold (auto-tracked with the gold ETF NAV), land/property, cash, savings, PPF/EPF/NPS/small savings, stocks, insurance/ULIPs, loans and credit cards — with an after-tax "if sold today" value, a forecast and a **money-leak** report,
+* and has a **✓ Check** button that saves, refreshes live NAVs, recalculates everything and shows what changed since your last check.
 
 > **Not investment advice.** The builder is not a SEBI-registered investment adviser. Projections use your assumptions, not forecasts. Tax figures are estimates. Verify with scheme documents, a SEBI-registered adviser and a tax professional.
 
@@ -32,7 +35,7 @@ Any other static server also works (for example `python -m http.server`). Withou
 node tests/run-tests.js
 ```
 
-The latest run is saved in `tests/last-run.txt`: **131 passed, 0 failed**. Expected values are worked out independently in the test file (closed-form formulas and hand-computed tax), not by calling the code a second time. Coverage:
+The latest run is saved in `tests/last-run.txt`: **178 passed, 0 failed**. Expected values are worked out independently in the test file (closed-form formulas and hand-computed tax), not by calling the code a second time. Coverage:
 
 | # | Area | Examples |
 |---|------|----------|
@@ -51,6 +54,11 @@ The latest run is saved in `tests/last-run.txt`: **131 passed, 0 failed**. Expec
 | 14 | Data failures | all sources down → empty (nothing invented), cache fallback, stale-NAV detection |
 | 15 | Portfolio tracker | FIFO, realised vs unrealised, per-lot tax, oversell error, CSV round-trip |
 | 16 | XIRR | single-flow = CAGR, negative returns, undefined cases |
+| 13b | Custom-fund category detection | AMFI category text → dashboard category (large cap, ELSS, index, G-Sec index, overseas FoF, gold ETF…) |
+| 17 | Net-worth valuation | FD compounding/payout, gold price moved with ETF NAV, loan amortisation, PPF at 7.1%, endowment IRR, term cover = ₹0 |
+| 18 | Net worth & liquidation | assets − liabilities, stocks + MF share one ₹1.25L exemption, land: lower of 12.5% vs 20%-indexed, short-term land at slab, SGB maturity exempt |
+| 19 | Money leaks | idle cash, savings above emergency fund, FD below inflation after tax, credit-card interest, land holding cost, locker fee |
+| 14 | mfapi CORS retry | first response blocked → retried with a fresh cache key |
 
 I also checked the dashboard by hand in a browser: live data load, horizon/SIP changes, the allocation-total warning, "Scale to 100%", the actual-NAV redemption calculator, the SIP-series import, FIFO redemption, comparison tables, the fund dialog and the mobile layout (no horizontal scroll at 375 px).
 
@@ -65,6 +73,7 @@ js/calculator.js           Lot-by-lot projection, charges, gross→net, validati
 js/fund-research.js        NAV metrics, split adjustment, scoring, model allocation
 js/data-service.js         Backend → mfapi.in → cache fallback, freshness checks
 js/portfolio.js            Transaction ledger, FIFO, realised/unrealised, CSV
+js/networth.js             Net worth: valuation, forecast, liquidation tax, money leaks
 js/app.js                  UI state, rendering, events, charts
 config/tax-rules.json      Tax rule sets with effective dates and sources
 config/funds.json          Fund shortlist and factsheet snapshot with sources
@@ -90,6 +99,12 @@ The original planner's lot-wise SIP tax logic, exit-load tiers, GOLDBEES charges
 
 Not used: NSE/BSE live quotes (no free official API; scraping is against their terms), and Value Research / Morningstar (no public API; licence restrictions). Use them to cross-check by hand.
 
+| Gold price for physical/digital gold | Your entered 24K price per gram, moved by the Nippon Gold BeES NAV (AMFI) since the price date | Turn off "auto-track" to keep it fully manual. |
+| PPF / EPF / small-savings rates | `config/settings.json → netWorth.schemes` | PPF 7.1%, SSY/SCSS 8.2%, NSC 7.7%, KVP 7.5% (Oct–Dec 2026); EPF 8.25% (FY 2025-26). NPS rate is your assumption. Reset quarterly — update the file. |
+| Cost Inflation Index | `config/tax-rules.json` | 2001-02 to 2026-27 (384, CBDT notification 85/2026), used for the 20%-with-indexation option on land bought before 23 Jul 2024. |
+
+**mfapi.in quirk:** its edge cache sometimes serves a response without the CORS header, which browsers block. The data service requests each history with a once-a-day query key and retries with a unique key if blocked, so GitHub Pages works without the backend.
+
 **Fallback behaviour:** backend → mfapi.in direct → last good metrics in `localStorage` (labelled *cached/stale*) → "unavailable". NAVs older than 4 days are flagged stale. The backend serves its last good AMFI copy with `stale: true` when AMFI is unreachable.
 
 Backend endpoints: `/api/health`, `/api/nav/latest?codes=120716,122639`, `/api/nav/history/<code>`, `/api/search?q=parag flexi`.
@@ -113,7 +128,18 @@ Backend endpoints: `/api/health`, `/api/nav/latest?codes=120716,122639`, `/api/n
 
 Plus surcharge by income bracket (capped at 15% on equity STCG and all LTCG), 4% cess, STT 0.001% on equity-fund redemptions and 0.005% stamp duty on purchases. Section numbers under the Income-tax Act 2025 (196/197/198) come from secondary sources; check them against the official text.
 
-## 7. Known limitations
+## 7. Net worth, money leaks and the Check button
+
+* **Assets:** cash, savings accounts, FDs (cumulative or payout, premature penalty), gold (coins, jewellery with purity, digital, SGB), land/property (rent, holding costs, selling cost), PPF/EPF/VPF/NPS/SSY/NSC/SCSS/KVP, stocks & ETFs, insurance (term, endowment, money-back, ULIP), other assets, and mutual funds from "My portfolio" automatically. **Liabilities:** home, car, personal, education and gold loans, credit-card dues, with EMI amortisation.
+* **Mutual funds:** holdings recorded in "My portfolio" are valued at the latest NAV and projected at their fund's scenario return after expense ratio. The **allocation-simulator plan** (₹9,000 + SIP) is a separate component, projected lot by lot with the same engine used in sections D–E. Its gains are taxed together with your other holdings so the ₹1.25 lakh exemption is shared. If the planned money is currently in cash or savings, untick one of them.
+* **Include toggles:** tick or untick whole types (cash, FDs, gold, property, schemes, stocks, tracked MFs, planned investment, insurance, other, loans) and individual rows. Unticked items stay visible but greyed out and are left out of totals, leaks, the chart, the forecast and the Overview net-worth row. The choice is saved in the browser.
+* **"If sold today"** estimates penalties, buy-back deductions, selling costs and tax. Capital gains on stocks, mutual funds and gold are taxed together so losses offset and one ₹1.25 lakh equity exemption is shared. Property uses the cheaper of 12.5% or 20% with indexation where the law allows.
+* **Forecast** projects every asset to 5/7/10 years and your horizon (scenario-based growth, sourced scheme rates, loan balances falling with EMIs, future PPF/premium contributions shown separately), in nominal and today's money.
+* **Money leaks** (₹ a year): idle cash, savings above your emergency fund vs a liquid-fund yield, FDs earning below inflation after tax, matured FDs left idle, expensive debt, low-yield money held while paying a higher loan rate, low-IRR endowment/money-back policies, ULIP charges, gold locker fees, property costs above rent, Regular-plan / high-cost funds. Also flags risks: emergency fund below target and heavy concentration.
+* **✓ Check** (top bar and in each section): saves, re-fetches live NAVs, recalculates, lists anything needing attention (allocation not 100%, missing purchase cost, matured FDs, EMI below interest, stale NAVs, overdue tax review) and shows the change since your previous check. Values still update live as you type.
+* **Backup:** "Export all data" downloads one JSON file (settings, custom funds, strategies, transactions, assets); "Import backup" restores it. Data never leaves your browser otherwise.
+
+## 8. Known limitations
 
 * Factsheet fields are a dated snapshot, not live. HDFC Nifty 50 Index and HDFC Corporate Bond have no verified factsheet data. The arbitrage funds' expense ratios looked like Regular-plan figures and are treated as unverified (a category default of 0.40% is used and flagged). ICICI Large Cap's 1.00% expense ratio is flagged for checking.
 * Benchmark comparison uses an index-fund NAV as a proxy, because TRI series aren't freely available. Holdings-level diversification data isn't in free feeds.
@@ -121,4 +147,5 @@ Plus surcharge by income bracket (capped at 15% on equity STCG and all LTCG), 4%
 * Not modelled: equity grandfathering (31 Jan 2018 FMV), section 87A rebate and basic exemption, marginal relief, carry-forward of past losses, IDCW options, gold-ETF market price vs NAV, and interest income on directly held G-Secs.
 * "Spread redemption over N financial years" multiplies the ₹1.25 lakh exemption and ignores growth between the two sales.
 * Tax-law changes can't be detected automatically from free sources. The tool reminds you to re-verify instead.
-* Saved strategies and portfolio transactions live in this browser's `localStorage` only. Export a CSV to keep a copy.
+* Saved strategies, portfolio transactions and net-worth entries live in this browser's `localStorage` only. Use "Export all data" to keep a copy.
+* Net worth: FD interest is assumed to be taxed yearly (only interest from today onward is taxed in "if sold today"); 80TTA/80TTB, EPF interest tax above ₹2.5 lakh contributions, NPS annuity taxation, and Sec 10(10D) conditions for insurance are noted but not computed. Property and "other" asset values are your estimates.

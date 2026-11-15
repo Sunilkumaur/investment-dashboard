@@ -59,12 +59,21 @@
           errors.push('backend returned no data');
         } catch (e) { errors.push('backend: ' + e.message); }
       }
-      try {
-        const j = await getJSON(`${cfg.mfapiBase}${code}`);
-        const hist = parseHistory(j);
-        if (hist.length) return { code, hist, meta: j.meta || {}, source: 'mfapi.in', fetchedAt: new Date().toISOString() };
-        errors.push('mfapi returned no data');
-      } catch (e) { errors.push('mfapi: ' + e.message); }
+      // mfapi.in's edge cache sometimes serves responses WITHOUT the CORS header, which the browser then
+      // blocks. A query parameter bypasses that cached copy: try a once-a-day key first (cache-friendly),
+      // then a unique key, with a short pause between attempts.
+      const keys = [`d=${U.todayISO()}`, `t=${Date.now()}`, `t=${Date.now() + 1}`];
+      for (let i = 0; i < keys.length; i++) {
+        try {
+          const j = await getJSON(`${cfg.mfapiBase}${code}?${keys[i]}`);
+          const hist = parseHistory(j);
+          if (hist.length) return { code, hist, meta: j.meta || {}, source: 'mfapi.in', fetchedAt: new Date().toISOString(), attempts: i + 1 };
+          errors.push('mfapi returned no data'); break;
+        } catch (e) {
+          errors.push(`mfapi attempt ${i + 1}: ${e.message}`);
+          if (i < keys.length - 1) await new Promise(r => setTimeout(r, deps.retryDelayMs ?? 800 * (i + 1)));
+        }
+      }
       note('warn', `NAV history for ${code} unavailable (${errors.join('; ')}).`);
       return { code, hist: [], error: errors.join('; ') };
     }

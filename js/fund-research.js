@@ -299,5 +299,42 @@
     return out;
   }
 
-  return { adjustSplits, navOnOrBefore, cagrBetween, maxDrawdown, computeMetrics, percentileScores, scoreFunds, buildModelPortfolio, selectionRationale };
+  /**
+   * Suggest a dashboard category from AMFI's scheme category text (mfapi meta.scheme_category)
+   * and the scheme name. Always shown to the user for confirmation — never applied silently.
+   */
+  function guessCategory(schemeCategory, name) {
+    const c = String(schemeCategory || '').toLowerCase(), n = String(name || '').toLowerCase();
+    const has = (s, re) => re.test(s);
+    if (has(c, /gold etf/) || (has(c, /etf/) && has(n, /gold|silver/))) return 'gold_etf';
+    if (has(c, /fof|fund of fund/) && has(n, /gold|silver/)) return 'gold_fof';
+    if (has(c, /overseas|international/) || has(n, /nasdaq|s&p 500|us equity|global|overseas|international|world|china|japan|hang seng/)) return 'international_fof';
+    if (has(c, /elss/) || has(n, /elss|tax saver|taxsaver|long term equity/)) return 'elss';
+    if (has(c, /arbitrage/)) return 'arbitrage';
+    if (has(c, /liquid|overnight|money market|ultra short|low duration/)) return 'liquid';
+    if (has(c, /gilt/) && !has(c, /index/)) return 'gilt';
+    if (has(c, /corporate bond|banking and psu|banking & psu/)) return 'debt_corporate';
+    if (has(c, /debt scheme|conservative hybrid|credit risk|floater|dynamic bond|short duration|medium duration|long duration/)) return 'debt_other';
+    if (has(c, /aggressive hybrid/)) return 'aggressive_hybrid';
+    if (has(c, /balanced advantage|dynamic asset|equity savings/)) return 'balanced_advantage';
+    if (has(c, /multi asset/)) return 'multi_asset';
+    if (has(c, /index|etf/)) {
+      if (has(n, /g-sec|gsec|sdl|gilt|bond|crisil|psu|debt|treasury/)) return 'debt_other';
+      if (has(n, /next 50/)) return 'index_next50';
+      if (has(n, /smallcap|small cap|microcap|micro cap/)) return 'smallcap';
+      if (has(n, /midcap|mid cap/)) return 'midcap';
+      if (has(n, /nifty 50|sensex|nifty50/)) return 'index_largecap';
+      if (has(n, /500|total market|nifty 200|nifty 100|largemidcap/)) return 'index_broad';
+      return 'sectoral';
+    }
+    if (has(c, /sectoral|thematic/)) return 'sectoral';
+    if (has(c, /small cap/)) return 'smallcap';
+    if (has(c, /mid cap/) && !has(c, /large & mid|large and mid/)) return 'midcap';
+    if (has(c, /large cap/) && !has(c, /mid/)) return 'largecap';
+    if (has(c, /flexi cap/)) return 'flexi';
+    if (has(c, /equity/)) return 'equity_other';
+    return null;
+  }
+
+  return { guessCategory, adjustSplits, navOnOrBefore, cagrBetween, maxDrawdown, computeMetrics, percentileScores, scoreFunds, buildModelPortfolio, selectionRationale };
 });

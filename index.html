@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Smart Investment Dashboard</title>
 <meta name="description" content="Indian mutual fund research, ₹9,000 allocation simulator, long-term projection and after-tax, after-charges redemption calculator.">
-<link rel="stylesheet" href="css/styles.css">
+<link rel="stylesheet" href="css/styles.css?v=2026.11.15d">
 <script>try{var t=localStorage.getItem('siird.theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 </head>
@@ -15,10 +15,11 @@
     <div class="titlerow">
       <h1>Smart Indian Investment Research &amp; Wealth Dashboard</h1>
       <span id="dataChip" class="status-chip">Loading data…</span>
+      <button class="btn small primary" id="checkBtn" type="button" title="Save, refresh live NAVs, recalculate everything and show what changed since your last check">✓ Check</button>
       <button class="btn small" id="themeBtn" type="button" aria-label="Toggle dark or light theme">◐ Theme</button>
     </div>
     <nav class="navlinks" aria-label="Sections">
-      <a href="#overview">A · Overview</a><a href="#research">B · Research</a><a href="#allocation">C · Allocation</a>
+      <a href="#overview">A · Overview</a><a href="#networth">Net worth</a><a href="#research">B · Research</a><a href="#custom">Custom funds</a><a href="#allocation">C · Allocation</a>
       <a href="#projection">D · Projection</a><a href="#taxes">E · Tax &amp; charges</a><a href="#redeem">F · Redemption</a>
       <a href="#compare">G · Compare</a><a href="#updates">H · Updates</a><a href="#portfolio">I · My portfolio</a>
       <a href="#assumptions">Assumptions</a><a href="#sources">Sources</a>
@@ -31,6 +32,7 @@
     <b>Decision-support tool, not investment advice.</b> The builder of this tool is not a SEBI-registered investment adviser. Projections use <b>your assumptions</b>, not forecasts; past returns don't guarantee future returns. Tax figures are estimates under the rules in <code>config/tax-rules.json</code>. Read the scheme documents and consider a SEBI-registered adviser and a tax professional before investing.
   </div>
   <div id="fatal"></div>
+  <div id="checkResult"></div>
   <div id="inputErrors"></div>
 
   <!-- Global controls -->
@@ -64,6 +66,39 @@
     <div class="kpis" id="kpis"></div>
     <h3>Your tracked portfolio (actual holdings)</h3>
     <div class="kpis" id="kpisActual"></div>
+    <h3>Total net worth (everything you ticked in <a href="#networth">Net worth</a>, incl. mutual funds and the plan above)</h3>
+    <div class="kpis" id="kpisNW"></div>
+  </section>
+
+  <!-- Net worth -->
+  <section id="networth" class="sec">
+    <h2>Net worth &amp; money leaks</h2>
+    <p class="lede">Everything you own and owe — FDs, gold, land, cash, PPF/EPF/NPS, stocks, insurance, loans — plus mutual funds from “My portfolio”. Values update as you type; press <b>✓ Check</b> to save, refresh live prices and see what changed. Stored only in this browser.</p>
+    <div class="kpis" id="nwKpis"></div>
+    <div class="grid g2" style="margin-top:14px">
+      <div class="card">
+        <h3 style="margin-top:0">Add or edit an asset / liability</h3>
+        <div class="row"><div class="field" style="flex:2 1 240px"><label for="nwType">Type</label><select id="nwType"></select></div></div>
+        <div id="nwFields" class="row"></div>
+        <div id="nwMsg"></div>
+        <div class="btns"><button class="btn primary" id="nwSave" type="button">Add</button><button class="btn hidden" id="nwCancel" type="button">Cancel edit</button><button class="btn" data-check type="button">✓ Check</button></div>
+        <p class="note">Fields marked * are needed for the value and forecast. Blank optional fields fall back to the defaults shown in grey.</p>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0">Your situation (for leak checks)</h3>
+        <div class="row" id="nwProfile"></div>
+        <div class="chartbox short"><canvas id="nwChart" aria-label="Net worth by asset class"></canvas></div>
+      </div>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Assets &amp; liabilities</h3><div id="nwToggles"></div><div class="scroll"><table id="nwTbl"></table></div><p class="note" id="nwTblNote"></p></div>
+    <div class="card"><h3 style="margin-top:0">Money leaks</h3><p class="note">Money losing value, earning less than a comparable safe option, or costing more than it needs to. Estimates per year; they are prompts to review, not instructions.</p><div class="scroll"><table id="leakTbl"></table></div></div>
+    <div class="grid g2">
+      <div class="card"><h3 style="margin-top:0">Net worth forecast</h3><div class="chartbox"><canvas id="nwFcChart"></canvas></div></div>
+      <div class="card"><h3 style="margin-top:0">At each horizon</h3><div class="scroll"><table id="nwFcTbl"></table></div><p class="note" id="nwFcNote"></p></div>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Backup</h3>
+      <p class="note">Your data lives only in this browser. Export a backup file to keep a copy or move it to another device/browser. Importing replaces the current data.</p>
+      <div class="btns"><button class="btn" id="bkExport" type="button">Export all data (backup file)</button><label class="btn" for="bkImport" style="margin:0">Import backup<input type="file" id="bkImport" accept=".json,application/json" class="sr"></label></div><div id="bkMsg"></div></div>
   </section>
 
   <!-- B -->
@@ -91,6 +126,50 @@
     </div>
   </section>
 
+  <!-- Custom funds -->
+  <section id="custom" class="sec">
+    <h2>Custom funds</h2>
+    <p class="lede">Add any mutual fund or ETF. Search AMFI to fill the name and scheme code automatically — that enables live NAV, historical returns, volatility and drawdown. The fields under “Needed for the forecast” drive every projection, tax and charge calculation.</p>
+    <div class="card">
+      <h3 style="margin-top:0">1 · Find the fund (optional, recommended)</h3>
+      <div class="row"><div class="field" style="flex:3 1 280px"><label for="cfQ">Search AMFI schemes — prefer “Direct … Growth”</label><input type="search" id="cfQ" placeholder="e.g. Mirae Asset Large Cap direct growth"></div></div>
+      <div id="cfRes" class="searchres hidden"></div>
+      <div id="cfHist"></div>
+      <h3>2 · Needed for the forecast</h3>
+      <div class="row">
+        <div class="field" style="flex:3 1 260px"><label for="cfName">Fund name *</label><input type="text" id="cfName"></div>
+        <div class="field" style="flex:2 1 220px"><label for="cfCat">Category *</label><select id="cfCat"></select></div>
+        <div class="field" style="flex:2 1 220px"><label for="cfTax">Tax treatment *</label><select id="cfTax"></select></div>
+        <div class="field"><label for="cfTer">Expense ratio % a year *</label><input type="number" id="cfTer" step="0.01" min="0" max="3" class="assume"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label for="cfRc">Expected return % — Conservative *</label><input type="number" id="cfRc" step="0.5" class="assume"></div>
+        <div class="field"><label for="cfRm">Moderate *</label><input type="number" id="cfRm" step="0.5" class="assume"></div>
+        <div class="field"><label for="cfRo">Optimistic *</label><input type="number" id="cfRo" step="0.5" class="assume"></div>
+        <div class="field"><label for="cfEl">Exit load %</label><input type="number" id="cfEl" step="0.25" min="0" class="assume"></div>
+        <div class="field"><label for="cfEld">…if redeemed within (days)</label><input type="number" id="cfEld" step="1" min="0" class="assume"></div>
+        <div class="field"><label for="cfEl2">2nd tier exit load %</label><input type="number" id="cfEl2" step="0.25" min="0" class="assume"></div>
+        <div class="field"><label for="cfEld2">…within (days)</label><input type="number" id="cfEld2" step="1" min="0" class="assume"></div>
+      </div>
+      <p class="note">Expected returns are the fund's portfolio return <b>before</b> its expense ratio (the TER is subtracted). Defaults come from the category; the historical figures above are context only.</p>
+      <h3>3 · Optional details</h3>
+      <div class="row">
+        <div class="field"><label for="cfCode">AMFI scheme code</label><input type="number" id="cfCode" min="100000" max="999999"></div>
+        <div class="field" style="flex:2 1 200px"><label for="cfAmc">AMC</label><input type="text" id="cfAmc"></div>
+        <div class="field"><label for="cfPlan">Plan</label><select id="cfPlan"><option>Direct</option><option>Regular</option></select></div>
+        <div class="field"><label for="cfRisk">Risk-o-meter</label><select id="cfRisk"><option value="">—</option><option>Low</option><option>Low to Moderate</option><option>Moderate</option><option>Moderately High</option><option>High</option><option>Very High</option></select></div>
+        <div class="field"><label for="cfLock">Lock-in (years)</label><input type="number" id="cfLock" min="0" step="1"></div>
+        <div class="field"><label for="cfMinL">Min. lump sum ₹</label><input type="number" id="cfMinL" min="0"></div>
+        <div class="field"><label for="cfMinS">Min. SIP ₹</label><input type="number" id="cfMinS" min="0"></div>
+        <div class="field" style="flex:0 1 150px"><label for="cfListed"><input type="checkbox" id="cfListed"> Exchange-traded (ETF)</label></div>
+        <div class="field" style="flex:3 1 260px"><label for="cfSrc">Source / factsheet link or note</label><input type="text" id="cfSrc"></div>
+      </div>
+      <div id="cfMsg"></div>
+      <div class="btns"><button class="btn primary" id="cfSave" type="button">Save fund</button><button class="btn" id="cfSaveAdd" type="button">Save &amp; add to allocation</button><button class="btn hidden" id="cfCancel" type="button">Cancel edit</button><button class="btn" data-check type="button">✓ Check</button></div>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Your custom funds</h3><div class="scroll"><table id="cfTbl"></table></div><p class="note">Custom funds appear in the allocation simulator, research table, comparison, redemption calculator and portfolio tracker. They are not auto-picked by the model allocation (their factsheet data is user-entered).</p></div>
+  </section>
+
   <!-- C -->
   <section id="allocation" class="sec">
     <h2>C · Allocation simulator</h2>
@@ -101,18 +180,10 @@
         <div class="scroll"><table id="allocTbl"></table></div>
         <div class="btns">
           <button class="btn" id="addRow" type="button">+ Add fund</button>
-          <button class="btn" id="addAmfi" type="button">+ Add any AMFI scheme</button>
+          <a class="btn" href="#custom">+ Add custom fund</a>
           <button class="btn" id="normalise" type="button">Scale to 100%</button>
           <button class="btn" id="resetModel" type="button">Reset to model allocation</button>
-        </div>
-        <div id="amfiSearch" class="hidden" style="margin-top:10px">
-          <div class="row">
-            <div class="field" style="flex:3 1 260px"><label for="amfiQ">Search AMFI schemes (Direct Growth recommended)</label><input type="search" id="amfiQ" placeholder="e.g. Nifty 50 index direct growth"></div>
-            <div class="field"><label for="amfiCat">Category (sets tax treatment)</label><select id="amfiCat"></select></div>
-            <div class="field"><label for="amfiTer">Expense ratio % (from factsheet)</label><input type="number" id="amfiTer" step="0.01" min="0" class="assume"></div>
-          </div>
-          <div id="amfiRes" class="searchres"></div>
-          <p class="note">Custom schemes use NAV history from AMFI/mfapi.in; category, expense ratio and exit load are entered by you and marked as user-entered.</p>
+          <button class="btn" data-check type="button">✓ Check</button>
         </div>
       </div>
       <div class="card"><h3 style="margin-top:0">Allocation</h3><div class="chartbox short"><canvas id="allocChart" aria-label="Allocation doughnut chart"></canvas></div><div id="allocSummary" class="note"></div></div>
@@ -256,12 +327,13 @@
   <div class="db" id="fundDlgBody"></div>
 </dialog>
 
-<script src="js/util.js"></script>
-<script src="js/tax-engine.js"></script>
-<script src="js/calculator.js"></script>
-<script src="js/fund-research.js"></script>
-<script src="js/data-service.js"></script>
-<script src="js/portfolio.js"></script>
-<script src="js/app.js"></script>
+<script src="js/util.js?v=2026.11.15d"></script>
+<script src="js/tax-engine.js?v=2026.11.15d"></script>
+<script src="js/calculator.js?v=2026.11.15d"></script>
+<script src="js/fund-research.js?v=2026.11.15d"></script>
+<script src="js/data-service.js?v=2026.11.15d"></script>
+<script src="js/portfolio.js?v=2026.11.15d"></script>
+<script src="js/networth.js?v=2026.11.15d"></script>
+<script src="js/app.js?v=2026.11.15d"></script>
 </body>
 </html>

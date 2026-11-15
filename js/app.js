@@ -1,7 +1,7 @@
 /* Main application: state, rendering and event wiring. Calculations live in the engine modules. */
 (function () {
   'use strict';
-  const U = window.FinUtil, Calc = window.Calc, TaxEngine = window.TaxEngine, FR = window.FundResearch, PF = window.Portfolio;
+  const U = window.FinUtil, Calc = window.Calc, TaxEngine = window.TaxEngine, FR = window.FundResearch, PF = window.Portfolio, NW = window.NetWorth;
   const $ = id => document.getElementById(id);
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const money = v => (v == null || !isFinite(v)) ? '—' : (Math.abs(v) < 100 && Math.abs(v) > 0 ? U.inr(v, 2) : U.inr(v, 0));
@@ -51,7 +51,8 @@
       catScen: {}, weights: deep(CFG.settings.scoring.weights),
       strategies: [], customFunds: [], fc: ['uti-nifty50', 'ppfas-flexi', 'mo-midcap150', 'hdfc-gold-fof'],
       rd: { fundId: 'uti-nifty50', amt: 9000, sip: 0, start: U.iso(U.addYears(today, -5)), end: U.iso(U.addDays(today, -2)), ret: '' },
-      seenSnapshot: null
+      seenSnapshot: null,
+      nw: { excluded: [], excludedClasses: [], monthlyExpenses: '', emergencyMonths: CFG.settings.netWorth.defaults.emergencyMonths, highDebtPct: CFG.settings.netWorth.defaults.highInterestDebtPct, insuranceBenchmarkPct: CFG.settings.netWorth.defaults.insuranceBenchmarkPct }
     };
   }
   function pickLevies(l) { const o = {}; Object.keys(l).forEach(k => { if (typeof l[k] === 'number') o[k] = l[k]; }); return o; }
@@ -66,6 +67,7 @@
         m.charges = Object.assign(defaultState().charges, s.charges || {});
         m.weights = Object.assign(defaultState().weights, s.weights || {});
         m.rd = Object.assign(defaultState().rd, s.rd || {});
+        m.nw = Object.assign(defaultState().nw, s.nw || {});
         if (Array.isArray(m.rows)) m.rows.forEach(r => { r.uid = uidSeq++; });
         return m;
       }
@@ -90,9 +92,10 @@
     if (isFinite(row.ter) && row.ter !== '' && row.ter != null) { ter = +row.ter; terSrc = 'your override'; }
     else if (f.ter != null) { ter = f.ter; terSrc = f.userEntered ? 'user-entered' : `factsheet ${f.source && f.source.asOf || ''}`; }
     else { ter = cat.defaultTer; terSrc = 'ASSUMED — category default (factsheet value not verified)'; }
-    const ret = row.ret && isFinite(row.ret[scen]) && row.ret[scen] !== '' ? +row.ret[scen] : catScen(f.category, scen);
+    const fundRet = f.scenario && isFinite(f.scenario[scen]) ? +f.scenario[scen] : null;
+    const ret = row.ret && isFinite(row.ret[scen]) && row.ret[scen] !== '' ? +row.ret[scen] : (fundRet ?? catScen(f.category, scen));
     const exitLoad = row.exitLoad || f.exitLoad;
-    return { f, cat, taxClass: cat.taxClass, listed: !!f.listed, ter, terSrc, ret, retOverridden: !!(row.ret && isFinite(row.ret[scen]) && row.ret[scen] !== ''), exitLoad, exitUnknown: !exitLoad };
+    return { f, cat, taxClass: f.taxClassOverride || cat.taxClass, lockInYears: +(f.lockInYears || cat.lockInYears || 0), listed: !!f.listed, ter, terSrc, ret, retOverridden: !!(row.ret && isFinite(row.ret[scen]) && row.ret[scen] !== ''), exitLoad, exitUnknown: !exitLoad };
   }
   function toHoldings(rows, capital, sip, scen) {
     return rows.map(r => { const e = eff(r, scen); if (!e) return null; return { id: r.fundId, name: e.f.name, taxClass: e.taxClass, listed: e.listed, exitLoad: e.exitLoad, amount: capital * (+r.pct || 0) / 100, sipAmount: sip * (+r.pct || 0) / 100, grossReturnPct: e.ret, terPct: e.ter }; }).filter(Boolean);
@@ -191,13 +194,14 @@
     safe(renderKPIs); safe(renderModel); safe(renderShortlist); safe(renderAlloc); safe(renderStrategies);
     safe(renderProjection); safe(renderTaxes); safe(renderRedeem); safe(renderCompare); safe(renderFundCompare);
     safe(renderUpdates); safe(renderPortfolio); safe(renderAssumptionValues); safe(renderDataChip);
+    safe(renderCustom); safe(renderNetWorth);
   }
   function safe(fn) { try { fn(); } catch (e) { console.error(fn.name, e); } }
 
   function renderDataChip() {
     const chip = $('dataChip');
     if (!dataLoaded) return;
-    const codes = allFunds().map(f => f.schemeCode);
+    const codes = allFunds().map(f => f.schemeCode).filter(Boolean);
     const live = codes.filter(c => MET[c] && MET[c].live).length, cached = codes.filter(c => MET[c] && !MET[c].live && MET[c].metrics && MET[c].metrics.available).length;
     const missing = codes.length - live - cached;
     const staleNav = codes.filter(c => { const l = latestNav(c); return !l || DS.freshness(l.date, l.fetchedAt).navStale; }).length;
@@ -211,7 +215,6 @@
     $('profile').innerHTML = Object.entries(P).map(([k, p]) => `<option value="${k}">${esc(p.label)}</option>`).join('');
     const catOpts = Object.entries(CATS).map(([k, c]) => `<option value="${k}">${esc(c.label)}</option>`).join('');
     $('catFilter').innerHTML = '<option value="">All categories</option>' + catOpts;
-    $('amfiCat').innerHTML = catOpts;
     $('txClass').innerHTML = Object.entries(CFG.tax.taxClasses).map(([k, c]) => `<option value="${k}">${esc(c.label)}</option>`).join('');
 
     const bindNum = (id, key, after) => $(id).addEventListener('input', e => { S[key] = e.target.value === '' ? 0 : +e.target.value; if (after) after(); schedule(); });
@@ -235,6 +238,7 @@
     $('catFilter').addEventListener('change', () => safe(renderShortlist));
     $('fundDlgClose').addEventListener('click', () => $('fundDlg').close());
     bindAlloc(); bindStrategies(); bindRedeem(); bindPortfolio(); bindAssumptions();
+    bindCustom(); bindNetWorth(); bindCheck();
     renderWeights();
   }
 
@@ -457,26 +461,6 @@
     });
     $('addRow').addEventListener('click', () => { S.rows = S.rows || []; const used = new Set(S.rows.map(r => r.fundId)); const f = allFunds().find(x => !used.has(x.id)) || allFunds()[0]; S.rows.push({ uid: uidSeq++, fundId: f.id, pct: 0 }); allocFull = true; schedule(); });
     $('normalise').addEventListener('click', () => { const tot = U.sum(S.rows || [], r => +r.pct || 0); if (tot > 0) S.rows.forEach(r => { r.pct = U.round(r.pct / tot * 100, 4); }); allocFull = true; schedule(); });
-    $('addAmfi').addEventListener('click', () => $('amfiSearch').classList.toggle('hidden'));
-    let qT = null;
-    $('amfiQ').addEventListener('input', e => {
-      clearTimeout(qT); const q = e.target.value.trim();
-      qT = setTimeout(async () => {
-        if (q.length < 3) { $('amfiRes').innerHTML = ''; return; }
-        $('amfiRes').innerHTML = '<div class="note" style="padding:8px">Searching…</div>';
-        const res = await DS.searchSchemes(q);
-        $('amfiRes').innerHTML = res.length ? res.slice(0, 40).map(r => `<button type="button" data-code="${r.schemeCode}" data-name="${esc(r.schemeName)}">${esc(r.schemeName)} <span class="note">· ${r.schemeCode}</span></button>`).join('') : '<div class="note" style="padding:8px">No matches (or search source unavailable).</div>';
-      }, 350);
-    });
-    $('amfiRes').addEventListener('click', async e => {
-      const b = e.target.closest('button[data-code]'); if (!b) return;
-      const code = +b.dataset.code, cat = $('amfiCat').value, ter = $('amfiTer').value;
-      const id = 'custom-' + code;
-      if (!fundById(id)) S.customFunds.push({ id, schemeCode: code, name: b.dataset.name, amc: 'User-added (AMFI)', category: cat, ter: ter === '' ? null : +ter, aumCr: null, exitLoad: null, managers: null, riskometer: null, minLumpsum: null, minSip: null, benchmark: null, benchmarkProxy: null, userEntered: true, flags: ['Added by you: category, expense ratio and exit load are user-entered, not sourced.'], source: { label: 'AMFI NAV (user-added)', url: CFG.settings.data.amfiNavUrl, asOf: null } });
-      S.rows = S.rows || []; S.rows.push({ uid: uidSeq++, fundId: id, pct: 0 });
-      $('amfiSearch').classList.add('hidden'); allocFull = true;
-      await ensureHistory(code); schedule();
-    });
   }
 
   function renderAlloc() {
@@ -579,7 +563,8 @@
   function renderTaxes() {
     if (!RES) { ['scenA', 'scenB'].forEach(id => { $(id).innerHTML = '<p class="mut">No projection.</p>'; }); ['lossTbl', 'taxTbl', 'fundResTbl', 'lotTbl'].forEach(id => { $(id).innerHTML = ''; }); return; }
     const R = RES, L = R.losses, G = R.groupedLosses;
-    $('taxLede').innerHTML = `Redemption of the whole portfolio on <b>${esc(endDate())}</b> (${esc(U.fyLabel(U.fyStart(endDate())))}) under rule set <b>${esc(TaxEngine.ruleSetFor(CFG.tax, endDate()).rs.label)}</b>. Slab rate ${S.tax.slab}%, surcharge bracket “${esc((CFG.tax.surchargeBrackets.find(b => b.id === S.tax.surchargeId) || {}).label)}”, cess ${S.tax.cess}%.`;
+    const locked = R.perHolding.map(p => { const e = eff({ fundId: p.holding.id }); const n = e && e.lockInYears ? p.lots.filter(l => l.days < e.lockInYears * 365).length : 0; return n ? `${p.holding.name}: ${n} lot(s) still inside the ${e.lockInYears}-year lock-in on the redemption date — they cannot be redeemed then` : ''; }).filter(Boolean);
+    $('taxLede').innerHTML = (locked.length ? `<div class="banner bad">${locked.map(esc).join('<br>')}</div>` : '') + `Redemption of the whole portfolio on <b>${esc(endDate())}</b> (${esc(U.fyLabel(U.fyStart(endDate())))}) under rule set <b>${esc(TaxEngine.ruleSetFor(CFG.tax, endDate()).rs.label)}</b>. Slab rate ${S.tax.slab}%, surcharge bracket “${esc((CFG.tax.surchargeBrackets.find(b => b.id === S.tax.surchargeId) || {}).label)}”, cess ${S.tax.cess}%.`;
     $('scenA').innerHTML = `<h3>Scenario A · without charges or tax</h3><dl>
       <dt>Initial investment</dt><dd>${money(S.capital)}</dd>${S.sip ? `<dt>+ SIP instalments</dt><dd>${money(R.invested - S.capital)}</dd>` : ''}
       <dt>Total invested</dt><dd>${money(R.invested)}</dd><dt>Gross projected value</dt><dd class="big">${money(R.vGross)}</dd>
@@ -728,8 +713,8 @@
     const today = U.todayISO();
     const snapAge = U.daysBetween(CFG.funds.snapshotDate, today);
     const reviewOver = today > CFG.tax.reviewBy;
-    const codes = allFunds().map(f => f.schemeCode);
-    const staleList = allFunds().filter(f => { const l = latestNav(f.schemeCode); return !l || DS.freshness(l.date, l.fetchedAt).navStale; });
+    const codes = allFunds().map(f => f.schemeCode).filter(Boolean);
+    const staleList = allFunds().filter(f => f.schemeCode && (() => { const l = latestNav(f.schemeCode); return !l || DS.freshness(l.date, l.fetchedAt).navStale; })());
     const anyOfficial = Object.values(OFFICIAL)[0];
     $('freshBox').innerHTML = `<ul class="tight">
       <li>NAV source: <b>${DS.isBackend() ? 'local backend → AMFI NAVAll.txt (official) + mfapi.in history' : 'mfapi.in (AMFI data mirror) directly from the browser'}</b>${anyOfficial ? ` · AMFI file fetched ${esc(new Date(anyOfficial.fetchedAt).toLocaleString('en-IN'))}${anyOfficial.stale ? ' <span class="pill warn">stale copy</span>' : ''}` : ''}.</li>
@@ -944,6 +929,422 @@
         <li>Projections assume constant returns; real markets are volatile and sequence matters. Tax rules for future years assume current law continues.</li>
         <li>Not modelled: equity grandfathering (31 Jan 2018 FMV), Sec 87A rebate/basic exemption, marginal relief, carry-forward of past losses, IDCW options, gold ETF market-price premium/discount to NAV, interest on directly-held G-Secs.</li>
         <li>Browser storage is per device; clearing site data deletes your saved strategies and transactions — export a CSV.</li></ul>`;
+  }
+
+  // ------------------------------------------------------------------ custom funds
+  const FUND_TAX = ['equity_oriented', 'debt_specified', 'hybrid_other', 'commodity_fof', 'international_fof', 'listed_non_equity_etf'];
+  let cfEditId = null;
+  const val = id => $(id).value.trim();
+  function storeHistory(code, r) {
+    const adj = FR.adjustSplits(r.hist); HIST[code] = adj.hist;
+    const metrics = FR.computeMetrics(adj.hist, { rfPct: rfPct ?? CFG.settings.riskFree.fallbackPct, windows: CFG.settings.correctionWindows }); metrics.splitAdjustments = adj.adjustments;
+    MET[code] = { metrics, source: r.source, fetchedAt: r.fetchedAt, live: true, schemeName: r.meta && r.meta.scheme_name, meta: r.meta };
+  }
+  function cfFillFromCategory(force) {
+    const c = CATS[$('cfCat').value]; if (!c) return;
+    [['cfRc', 'c'], ['cfRm', 'm'], ['cfRo', 'o']].forEach(([id, sc]) => { const el = $(id); el.placeholder = c.scenario[sc]; if (force || el.value === '') el.value = c.scenario[sc]; });
+    $('cfTer').placeholder = c.defaultTer; if (force && $('cfTer').value === '') $('cfTer').value = c.defaultTer;
+    if (c.lockInYears && $('cfLock').value === '') $('cfLock').value = c.lockInYears;
+    $('cfTax').options[0].textContent = `From category — ${CFG.tax.taxClasses[c.taxClass].label}`;
+  }
+  function cfShowHist(code) {
+    const m = (MET[code] || {}).metrics;
+    if (!m || !m.available) { $('cfHist').innerHTML = code ? '<p class="note warnc">No NAV history found for this scheme code.</p>' : ''; return; }
+    const ln = latestNav(code);
+    $('cfHist').innerHTML = `<div class="banner info"><b>Historical data (AMFI NAV, ${esc(m.firstDate)} → ${esc(m.latestDate)}):</b> NAV ${ln ? ln.nav.toFixed(4) : '—'} · 1Y ${pfs(m.ret1y)} · 3Y CAGR ${pfs(m.cagr3)} · 5Y ${pfs(m.cagr5)} · 10Y ${pfs(m.cagr10)} · volatility ${m.stdev3 != null ? (m.stdev3 * 100).toFixed(1) + '%' : 'n/a'} · worst 5-yr fall ${m.maxDD5 ? (m.maxDD5.mdd * 100).toFixed(1) + '%' : 'n/a'} · rolling 3-yr median ${m.rolling3 ? (m.rolling3.median * 100).toFixed(1) + '%' : 'n/a'}${(MET[code].meta || {}).scheme_category ? ` · AMFI category: ${esc(MET[code].meta.scheme_category)}` : ''}<div class="note">Context only — past NAV returns are already after the fund's expense ratio and are not used as your forecast.</div></div>`;
+  }
+  function cfClear() {
+    cfEditId = null;
+    ['cfName', 'cfTer', 'cfRc', 'cfRm', 'cfRo', 'cfEl', 'cfEld', 'cfEl2', 'cfEld2', 'cfCode', 'cfAmc', 'cfLock', 'cfMinL', 'cfMinS', 'cfSrc', 'cfQ'].forEach(id => { $(id).value = ''; });
+    $('cfTax').value = ''; $('cfPlan').value = 'Direct'; $('cfRisk').value = ''; $('cfListed').checked = false;
+    $('cfHist').innerHTML = ''; $('cfRes').classList.add('hidden'); $('cfCancel').classList.add('hidden'); $('cfSave').textContent = 'Save fund';
+    cfFillFromCategory(true);
+  }
+  function bindCustom() {
+    $('cfCat').innerHTML = Object.entries(CATS).map(([k, c]) => `<option value="${k}">${esc(c.label)}</option>`).join('');
+    $('cfCat').value = 'equity_other';
+    $('cfTax').innerHTML = '<option value="">From category</option>' + FUND_TAX.map(k => `<option value="${k}">${esc(CFG.tax.taxClasses[k].label)}</option>`).join('');
+    $('cfCat').addEventListener('change', () => cfFillFromCategory(true));
+    cfFillFromCategory(true);
+    let qT = null;
+    $('cfQ').addEventListener('input', e => {
+      clearTimeout(qT); const q = e.target.value.trim();
+      qT = setTimeout(async () => {
+        const box = $('cfRes');
+        if (q.length < 3) { box.classList.add('hidden'); return; }
+        box.classList.remove('hidden'); box.innerHTML = '<div class="note" style="padding:8px">Searching AMFI schemes…</div>';
+        const res = await DS.searchSchemes(q);
+        box.innerHTML = res.length ? res.slice(0, 40).map(r => `<button type="button" data-code="${r.schemeCode}" data-name="${esc(r.schemeName)}">${esc(r.schemeName)} <span class="note">· ${r.schemeCode}${/regular/i.test(r.schemeName) ? ' · Regular plan' : ''}${/idcw|dividend/i.test(r.schemeName) ? ' · IDCW' : ''}</span></button>`).join('') : '<div class="note" style="padding:8px">No matches, or the search source is unavailable. You can still type the details below.</div>';
+      }, 350);
+    });
+    $('cfRes').addEventListener('click', async e => {
+      const b = e.target.closest('button[data-code]'); if (!b) return;
+      const code = +b.dataset.code;
+      $('cfCode').value = code; $('cfName').value = b.dataset.name; $('cfRes').classList.add('hidden');
+      $('cfPlan').value = /regular/i.test(b.dataset.name) ? 'Regular' : 'Direct';
+      $('cfHist').innerHTML = '<p class="note">Loading NAV history…</p>';
+      const r = await DS.getHistory(code);
+      if (r.hist.length) {
+        storeHistory(code, r);
+        const meta = r.meta || {};
+        if (meta.fund_house) $('cfAmc').value = meta.fund_house;
+        const g = FR.guessCategory(meta.scheme_category, b.dataset.name);
+        if (g && CATS[g]) { $('cfCat').value = g; cfFillFromCategory(true); }
+        if (CATS[$('cfCat').value].taxClass === 'listed_non_equity_etf' || /etf/i.test(meta.scheme_category || '')) $('cfListed').checked = /etf/i.test(b.dataset.name) && !/fof|fund of fund/i.test(b.dataset.name);
+        $('cfMsg').innerHTML = g ? `<div class="banner info">Category suggested from AMFI (“${esc(meta.scheme_category || '')}”): <b>${esc(CATS[g].label)}</b>. Please confirm it and enter the expense ratio and exit load from the latest factsheet.</div>` : '<div class="banner warn">Could not detect the category — please choose it.</div>';
+      }
+      cfShowHist(code);
+    });
+    $('cfSave').addEventListener('click', () => cfSave(false));
+    $('cfSaveAdd').addEventListener('click', () => cfSave(true));
+    $('cfCancel').addEventListener('click', () => { cfClear(); $('cfMsg').innerHTML = ''; });
+    $('cfTbl').addEventListener('click', e => {
+      const ed = e.target.closest('[data-cfedit]'), dl = e.target.closest('[data-cfdel]'), ad = e.target.closest('[data-cfadd]');
+      if (ed) cfLoad(ed.dataset.cfedit);
+      if (ad) { S.rows = S.rows || []; S.rows.push({ uid: uidSeq++, fundId: ad.dataset.cfadd, pct: 0 }); allocFull = true; schedule(); location.hash = '#allocation'; }
+      if (dl) {
+        const f = fundById(dl.dataset.cfdel);
+        if (!f || !confirm(`Delete custom fund “${f.name}”? It will also be removed from the allocation simulator.`)) return;
+        S.customFunds = S.customFunds.filter(x => x.id !== f.id); S.rows = (S.rows || []).filter(r => r.fundId !== f.id); allocFull = true; schedule();
+      }
+    });
+  }
+  function cfLoad(id) {
+    const f = fundById(id); if (!f) return;
+    cfClear(); cfEditId = id;
+    $('cfName').value = f.name; $('cfCat').value = f.category; $('cfTax').value = f.taxClassOverride || ''; $('cfTer').value = f.ter ?? '';
+    $('cfRc').value = f.scenario ? f.scenario.c : ''; $('cfRm').value = f.scenario ? f.scenario.m : ''; $('cfRo').value = f.scenario ? f.scenario.o : '';
+    const t = (f.exitLoad && f.exitLoad.tiers) || [];
+    $('cfEl').value = t[0] ? t[0].pct : ''; $('cfEld').value = t[0] ? t[0].days : ''; $('cfEl2').value = t[1] ? t[1].pct : ''; $('cfEld2').value = t[1] ? t[1].days : '';
+    $('cfCode').value = f.schemeCode || ''; $('cfAmc').value = f.amc && f.amc !== 'User-added' ? f.amc : ''; $('cfPlan').value = f.plan || 'Direct'; $('cfRisk').value = f.riskometer || '';
+    $('cfLock').value = f.lockInYears || ''; $('cfMinL').value = f.minLumpsum ?? ''; $('cfMinS').value = f.minSip ?? ''; $('cfListed').checked = !!f.listed; $('cfSrc').value = (f.source && f.source.note) || '';
+    cfFillFromCategory(false);
+    $('cfCancel').classList.remove('hidden'); $('cfSave').textContent = 'Update fund';
+    if (f.schemeCode) cfShowHist(f.schemeCode);
+    $('custom').scrollIntoView();
+  }
+  async function cfSave(addToAlloc) {
+    const errs = [], n = id => (val(id) === '' ? null : +val(id));
+    const name = val('cfName'), cat = $('cfCat').value, ter = n('cfTer'), rc = n('cfRc'), rm = n('cfRm'), ro = n('cfRo');
+    if (!name) errs.push('Fund name is required.');
+    if (!CATS[cat]) errs.push('Choose a category.');
+    if (ter == null || !(ter >= 0 && ter <= 3)) errs.push('Expense ratio must be between 0% and 3%.');
+    [[rc, 'Conservative'], [rm, 'Moderate'], [ro, 'Optimistic']].forEach(([v, l]) => { if (v == null || !(v >= -20 && v <= 40)) errs.push(`${l} expected return must be between −20% and 40%.`); });
+    if (rc != null && rm != null && ro != null && !(rc <= rm && rm <= ro)) errs.push('Expected returns should rise from Conservative to Optimistic.');
+    const tiers = [];
+    [[n('cfEl'), n('cfEld')], [n('cfEl2'), n('cfEld2')]].forEach(([p, d], i) => { if (p > 0) { if (!(d > 0)) errs.push(`Exit load tier ${i + 1}: enter the number of days.`); else tiers.push({ pct: p, days: d }); } });
+    if (tiers.length === 2 && tiers[1].days <= tiers[0].days) errs.push('2nd exit-load tier must have more days than the 1st.');
+    const code = n('cfCode');
+    if (code != null && !(code >= 100000 && code <= 999999)) errs.push('AMFI scheme code is a 6-digit number.');
+    if (errs.length) { $('cfMsg').innerHTML = `<div class="banner bad">${errs.map(esc).join('<br>')}</div>`; return; }
+    if (code && !HIST[code]) { const r = await DS.getHistory(code); if (r.hist.length) storeHistory(code, r); }
+    const flags = ['Added by you: category, expense ratio, exit load and expected returns are user-entered.'];
+    if (code && !HIST[code]) flags.push('No NAV history found for this scheme code — live NAV and historical metrics unavailable.');
+    if (!code) flags.push('No AMFI scheme code — live NAV and historical metrics unavailable.');
+    if ($('cfPlan').value === 'Regular') flags.push('Regular plan: includes distributor commission (typically 0.5–1% a year more than Direct).');
+    const f = {
+      id: cfEditId || ('custom-' + (code || Date.now())), schemeCode: code || null, name, amc: val('cfAmc') || 'User-added', category: cat,
+      taxClassOverride: $('cfTax').value || null, ter, scenario: { c: rc, m: rm, o: ro },
+      exitLoad: { tiers, freePct: 0, text: tiers.length ? tiers.map(t => `${t.pct}% within ${t.days} days`).join('; ') : 'Nil (as entered)' },
+      plan: $('cfPlan').value, riskometer: $('cfRisk').value || null, lockInYears: n('cfLock') || 0, minLumpsum: n('cfMinL'), minSip: n('cfMinS'), listed: $('cfListed').checked,
+      managers: null, aumCr: null, benchmark: null, benchmarkProxy: null, userEntered: true, flags,
+      source: { label: 'User-entered' + (code ? ' + AMFI NAV' : ''), url: /^https?:/.test(val('cfSrc')) ? val('cfSrc') : (code ? CFG.settings.data.amfiNavUrl : ''), note: val('cfSrc'), asOf: U.todayISO() }
+    };
+    if (!cfEditId && fundById(f.id)) f.id = 'custom-' + Date.now();
+    const i = S.customFunds.findIndex(x => x.id === f.id);
+    if (i >= 0) S.customFunds[i] = f; else S.customFunds.push(f);
+    if (addToAlloc) { S.rows = S.rows || []; if (!S.rows.some(r => r.fundId === f.id)) S.rows.push({ uid: uidSeq++, fundId: f.id, pct: 0 }); }
+    $('cfMsg').innerHTML = `<div class="banner good">${cfEditId ? 'Updated' : 'Saved'} “${esc(name)}”.${addToAlloc ? ' Added to the allocation simulator at 0% — set its share there.' : ''}</div>`;
+    cfClear(); allocFull = true; schedule();
+    if (addToAlloc) location.hash = '#allocation';
+  }
+  function renderCustom() {
+    const list = S.customFunds || [];
+    $('cfTbl').innerHTML = !list.length ? '<tr><td class="mut">No custom funds yet. Search AMFI above to add one.</td></tr>'
+      : '<tr><th>Fund</th><th>Category · tax</th><th>Plan</th><th>TER</th><th>Returns C / M / O</th><th>Exit load</th><th>Latest NAV</th><th>5Y CAGR (hist.)</th><th></th></tr>' + list.map(f => {
+        const e = eff({ fundId: f.id }), ln = f.schemeCode ? latestNav(f.schemeCode) : null, m = metricsFor(f) || {};
+        return `<tr><td class="fundname">${fundLink(f)}<div class="note">${esc(f.amc)}${f.schemeCode ? ' · ' + f.schemeCode : ' · no AMFI code'}</div></td><td class="tl">${esc(CATS[f.category].label)}<div class="note">${esc(CFG.tax.taxClasses[e.taxClass].label)}</div></td><td>${esc(f.plan || 'Direct')}${f.plan === 'Regular' ? ' <span class="pill warn">costlier</span>' : ''}</td><td>${f.ter != null ? f.ter.toFixed(2) + '%' : '—'}</td><td>${f.scenario ? `${f.scenario.c} / ${f.scenario.m} / ${f.scenario.o}%` : '—'}</td><td class="wrap note">${esc(f.exitLoad ? f.exitLoad.text : '—')}</td><td>${ln ? `${ln.nav.toFixed(4)}<div class="note">${esc(ln.date)}</div>` : '<span class="mut">—</span>'}</td><td>${pf(m.cagr5)}</td>
+          <td><button class="btn small" data-cfedit="${esc(f.id)}" type="button">Edit</button> <button class="btn small" data-cfadd="${esc(f.id)}" type="button">+ Allocation</button> <button class="btn small danger" data-cfdel="${esc(f.id)}" type="button" aria-label="Delete">✕</button></td></tr>`;
+      }).join('');
+    const tf = $('txFund');
+    if (document.activeElement !== tf) { const v = tf.value; tf.innerHTML = fundOptions(null) + '<option value="__other">Other (type the name)…</option>'; tf.value = v || tf.value; }
+  }
+
+  // ------------------------------------------------------------------ net worth
+  const NW_KEY = 'siird.networth.v1';
+  const loadNW = () => { try { const v = JSON.parse(store.getItem(NW_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+  const saveNW = a => { try { store.setItem(NW_KEY, JSON.stringify(a)); } catch (e) { /* storage unavailable */ } };
+  let nwEditId = null;
+  const TODAY = () => U.todayISO();
+  function nwTypes() {
+    const D = CFG.settings.netWorth.defaults, G = D.growth, sc = S.scenario;
+    const schemes = CFG.settings.netWorth.schemes;
+    return {
+      cash: { label: 'Cash in hand', fields: [{ k: 'name', l: 'Label', t: 'text', def: 'Cash in hand' }, { k: 'amount', l: 'Amount ₹', t: 'num', req: 1 }] },
+      savings: { label: 'Savings / current account', fields: [{ k: 'name', l: 'Bank / account', t: 'text', req: 1 }, { k: 'balance', l: 'Balance ₹', t: 'num', req: 1 }, { k: 'ratePct', l: 'Interest % a year', t: 'num', def: D.savingsRatePct, assume: 1 }] },
+      fd: { label: 'Fixed deposit', fields: [{ k: 'name', l: 'Bank / label', t: 'text', req: 1 }, { k: 'principal', l: 'Amount deposited ₹', t: 'num', req: 1 }, { k: 'ratePct', l: 'Interest % a year', t: 'num', req: 1 }, { k: 'startDate', l: 'Start date', t: 'date', req: 1 }, { k: 'maturityDate', l: 'Maturity date', t: 'date', req: 1 }, { k: 'compounding', l: 'Interest', t: 'sel', o: [['quarterly', 'Cumulative – quarterly'], ['monthly', 'Cumulative – monthly'], ['half-yearly', 'Cumulative – half-yearly'], ['yearly', 'Cumulative – yearly'], ['payout', 'Paid out (non-cumulative)']], def: 'quarterly' }, { k: 'penaltyPct', l: 'Premature penalty %', t: 'num', ph: D.fdPrematurePenaltyPct, assume: 1 }, { k: 'reinvest', l: 'Reinvest at maturity', t: 'chk', def: true }] },
+      gold: { label: 'Gold (physical, jewellery, digital, SGB)', fields: [{ k: 'name', l: 'Label', t: 'text', def: 'Gold' }, { k: 'form', l: 'Form', t: 'sel', o: [['physical', 'Coins / bars'], ['jewellery', 'Jewellery'], ['digital', 'Digital gold'], ['sgb', 'Sovereign Gold Bond']], def: 'physical' }, { k: 'grams', l: 'Weight (grams)', t: 'num', req: 1 }, { k: 'purity', l: 'Purity', t: 'sel', o: [['24', '24K (999)'], ['22', '22K (916)'], ['18', '18K (750)'], ['14', '14K']], def: '24' }, { k: 'pricePerGram', l: "Today's 24K price per gram ₹", t: 'num', req: 1, assume: 1 }, { k: 'priceDate', l: 'Price date', t: 'date', def: TODAY() }, { k: 'autoTrack', l: 'Auto-track with gold ETF NAV', t: 'chk', def: true }, { k: 'purchaseDate', l: 'Purchase date', t: 'date' }, { k: 'purchaseCost', l: 'Total purchase cost ₹', t: 'num' }, { k: 'buybackPct', l: 'Buy-back deduction %', t: 'num', ph: `${D.coinBuybackDeductionPct} coins / ${D.jewelleryBuybackDeductionPct} jewellery`, assume: 1 }, { k: 'lockerFee', l: 'Locker / storage ₹ a year', t: 'num' }] },
+      property: { label: 'Land / property', fields: [{ k: 'name', l: 'Label / location', t: 'text', req: 1 }, { k: 'subtype', l: 'Type', t: 'sel', o: [['land', 'Land / plot'], ['residential', 'Residential (let out / vacant)'], ['commercial', 'Commercial'], ['self-occupied', 'Self-occupied home']], def: 'land' }, { k: 'purchaseDate', l: 'Purchase date', t: 'date', req: 1 }, { k: 'purchaseCost', l: 'Cost incl. stamp duty, registration, improvements ₹', t: 'num', req: 1 }, { k: 'currentValue', l: 'Estimated value today ₹', t: 'num', req: 1, assume: 1 }, { k: 'valuationDate', l: 'Valuation date', t: 'date', def: TODAY() }, { k: 'appreciationPct', l: 'Expected appreciation % a year', t: 'num', ph: G.property[sc], assume: 1 }, { k: 'annualRent', l: 'Rent received ₹ a year', t: 'num' }, { k: 'annualCosts', l: 'Property tax, maintenance ₹ a year', t: 'num' }, { k: 'sellCostPct', l: 'Selling cost % (brokerage)', t: 'num', ph: D.propertySellCostPct, assume: 1 }] },
+      scheme: { label: 'PPF / EPF / NPS / small savings', fields: [{ k: 'scheme', l: 'Scheme', t: 'sel', o: Object.entries(schemes).map(([k, s]) => [k, `${s.label} — ${s.ratePct}%${s.assumption ? ' (assumed)' : ''}`]), def: 'PPF' }, { k: 'name', l: 'Label', t: 'text' }, { k: 'balance', l: 'Current balance ₹', t: 'num', req: 1 }, { k: 'annualContribution', l: 'Yearly contribution ₹', t: 'num' }, { k: 'ratePct', l: 'Rate % (blank = sourced rate)', t: 'num', assume: 1 }, { k: 'maturityDate', l: 'Maturity date', t: 'date' }] },
+      stock: { label: 'Stocks & ETFs', fields: [{ k: 'name', l: 'Stock / ETF', t: 'text', req: 1 }, { k: 'quantity', l: 'Quantity', t: 'num', req: 1 }, { k: 'avgPrice', l: 'Average buy price ₹', t: 'num', req: 1 }, { k: 'currentPrice', l: 'Current price ₹', t: 'num', req: 1 }, { k: 'buyDate', l: 'Buy date (first lot)', t: 'date', req: 1 }, { k: 'taxClass', l: 'Tax treatment', t: 'sel', o: [['equity_oriented', 'Shares / equity ETF'], ['listed_non_equity_etf', 'Gold / silver ETF'], ['gsec_listed', 'Bonds / G-Sec']], def: 'equity_oriented' }, { k: 'expectedReturnPct', l: 'Expected return % a year', t: 'num', ph: G.stocks[sc], assume: 1 }] },
+      loan: { label: 'Loan / credit card (owed)', fields: [{ k: 'name', l: 'Lender / label', t: 'text', req: 1 }, { k: 'kind', l: 'Type', t: 'sel', o: [['home', 'Home loan'], ['car', 'Car loan'], ['personal', 'Personal loan'], ['education', 'Education loan'], ['gold', 'Gold loan'], ['credit_card', 'Credit-card dues'], ['other', 'Other']], def: 'personal' }, { k: 'outstanding', l: 'Outstanding ₹', t: 'num', req: 1 }, { k: 'ratePct', l: 'Interest % a year', t: 'num', req: 1 }, { k: 'emi', l: 'EMI ₹ a month', t: 'num' }, { k: 'asOf', l: 'Outstanding as of', t: 'date', def: TODAY() }] },
+      insurance: { label: 'Insurance / ULIP / endowment', fields: [{ k: 'name', l: 'Policy', t: 'text', req: 1 }, { k: 'kind', l: 'Type', t: 'sel', o: [['term', 'Term (pure protection)'], ['endowment', 'Endowment'], ['moneyback', 'Money-back'], ['ulip', 'ULIP']], def: 'endowment' }, { k: 'annualPremium', l: 'Premium ₹ a year', t: 'num', req: 1 }, { k: 'startDate', l: 'Policy start', t: 'date' }, { k: 'maturityDate', l: 'Maturity date', t: 'date' }, { k: 'premiumYears', l: 'Premium-paying years', t: 'num' }, { k: 'sumAssured', l: 'Sum assured ₹', t: 'num' }, { k: 'surrenderValue', l: 'Surrender / fund value today ₹', t: 'num' }, { k: 'maturityValue', l: 'Expected maturity value ₹', t: 'num' }, { k: 'moneybackReceived', l: 'Money-back received so far ₹', t: 'num' }, { k: 'chargesPct', l: 'ULIP charges % a year', t: 'num' }, { k: 'expectedReturnPct', l: 'ULIP fund return % a year', t: 'num', ph: G.ulip[sc], assume: 1 }] },
+      other: { label: 'Other asset', fields: [{ k: 'name', l: 'Description', t: 'text', req: 1 }, { k: 'value', l: 'Value today ₹', t: 'num', req: 1 }, { k: 'growthPct', l: 'Growth % a year', t: 'num', def: 0, assume: 1 }, { k: 'liquid', l: 'Can be sold within a week', t: 'chk', def: true }] }
+    };
+  }
+  function renderNwFields(type, values = {}) {
+    const T = nwTypes()[type];
+    $('nwFields').innerHTML = T.fields.map(f => {
+      const id = 'nw_' + f.k, v = values[f.k] ?? (f.def !== undefined ? f.def : '');
+      const lab = `${esc(f.l)}${f.req ? ' *' : ''}`;
+      if (f.t === 'chk') return `<div class="field"><label for="${id}"><input type="checkbox" id="${id}" ${v === true || v === 'true' ? 'checked' : ''}> ${lab}</label></div>`;
+      if (f.t === 'sel') return `<div class="field"><label for="${id}">${lab}</label><select id="${id}">${f.o.map(([ov, ol]) => `<option value="${esc(ov)}"${String(v) === String(ov) ? ' selected' : ''}>${esc(ol)}</option>`).join('')}</select></div>`;
+      return `<div class="field"><label for="${id}">${lab}</label><input type="${f.t === 'num' ? 'number' : f.t}" id="${id}" value="${esc(v)}" ${f.ph != null ? `placeholder="${esc(f.ph)}"` : ''} ${f.t === 'num' ? 'step="any"' : ''} class="${f.assume ? 'assume' : ''}"></div>`;
+    }).join('');
+  }
+  function mfAssets() {
+    const txns = PF.load(store); if (!txns.length) return [];
+    const P = portfolioResult(txns);
+    return P.holdings.filter(h => h.units > 1e-9 && h.value != null).map(h => {
+      const f = allFunds().find(x => String(x.schemeCode) === String(h.schemeCode));
+      const e = f ? eff({ fundId: f.id }) : null;
+      const cat = f ? f.category : null;
+      return { id: 'mf-' + h.key, type: 'mf', name: h.name, value: h.value, cost: h.cost, taxClass: h.taxClass, category: cat, plan: f && f.plan, ter: e ? e.ter : null, catDefaultTer: cat ? CATS[cat].defaultTer : null,
+        growthPct: e ? e.ret - e.ter : catScen('index_broad', S.scenario) - 0.5, lots: h.lots.map(l => ({ buyDate: l.date, cost: l.units * l.costPerUnit, value: l.units * h.nav })), readOnly: true };
+    });
+  }
+  /** The allocation-simulator plan as a net-worth component, valued with the same lot-by-lot projection engine. */
+  function planAsset() {
+    if (!(S.rows || []).length || !(+S.capital > 0 || +S.sip > 0)) return null;
+    return { id: 'plan', type: 'projected', name: `Planned: ${money(+S.capital)}${+S.sip > 0 ? ` + ${money(+S.sip)}/mo SIP` : ''} (allocation simulator, from ${S.startDate})`, readOnly: true, source: 'simulator' };
+  }
+  function makePlanProjector() {
+    const memo = {}, today = TODAY(), start = S.startDate;
+    const dbl = 'If this money currently sits in cash, savings or an FD listed here, untick one of them so it is not counted twice.';
+    return d => {
+      if (d in memo) return memo[d];
+      let res = null;
+      if ((S.rows || []).length && (+S.capital > 0 || +S.sip > 0)) {
+        if (d < start) res = { value: 0, contrib: 0, costs: 0, lots: [], notes: [`Plan starts on ${start}.`] };
+        else if (d === start) res = { value: +S.capital || 0, contrib: 0, costs: 0, lots: [], notes: ['Lump sum to be invested today (not yet grown).', dbl] };
+        else {
+          try {
+            const r = project(S.rows, { end: d }), lots = [];
+            r.perHolding.forEach(p => p.lots.forEach(l => lots.push({ buyDate: l.date, cost: l.amount, proceeds: l.proceedsForTax, taxClass: p.holding.taxClass })));
+            const contrib = U.sum(r.perHolding.flatMap(p => p.lots).filter(l => l.date > today), l => l.amount);
+            res = { value: r.vNav, contrib, costs: r.losses.exitLoad + r.losses.sellTransaction + r.losses.stt + r.losses.other, lots,
+              notes: [`${CFG.settings.scenarios[S.scenario].label} scenario, after expense ratios; ${r.perHolding.length} fund(s), ${lots.length} lot(s).`, 'Exit load, STT and charges shown as costs; gains taxed together with your other holdings.', start >= today ? dbl : ''].filter(Boolean) };
+          } catch (e) { res = null; }
+        }
+      }
+      memo[d] = res; return res;
+    };
+  }
+  function nwCtx() {
+    const tp = taxProfile(), gh = HIST[CFG.settings.netWorth.goldTrackSchemeCode];
+    return {
+      projectors: { plan: makePlanProjector() },
+      today: TODAY(), rules: rulesEff(), nw: CFG.settings.netWorth, scen: S.scenario, slabRatePct: tp.slabRatePct, cessPct: tp.cessPct, surchargePct: tp.surchargePct, taxOverrides: tp.overrides,
+      inflationPct: +S.inflation, goldGrowthPct: catScen('gold_fof', S.scenario),
+      goldNav: gh ? (d => { const p = FR.navOnOrBefore(gh, d); return p ? p.nav : null; }) : null, goldLatestDate: gh ? gh[gh.length - 1].d : null,
+      liquidYieldPct: rfPct ?? CFG.settings.riskFree.fallbackPct, profile: S.nw
+    };
+  }
+  function bindNetWorth() {
+    const types = nwTypes();
+    $('nwType').innerHTML = Object.entries(types).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join('');
+    $('nwType').addEventListener('change', e => renderNwFields(e.target.value));
+    renderNwFields('fd');
+    $('nwType').value = 'fd';
+    const prof = [['monthlyExpenses', 'Monthly household expenses ₹', ''], ['emergencyMonths', 'Emergency fund target (months)', ''], ['highDebtPct', 'Flag debt costlier than % a year', ''], ['insuranceBenchmarkPct', 'Benchmark for insurance returns % (PPF)', '']];
+    $('nwProfile').innerHTML = prof.map(([k, l]) => `<div class="field"><label for="nwp_${k}">${esc(l)}</label><input type="number" id="nwp_${k}" class="assume" step="any" value="${esc(S.nw[k])}"></div>`).join('');
+    $('nwProfile').addEventListener('input', e => { const k = e.target.id.replace('nwp_', ''); S.nw[k] = e.target.value === '' ? '' : +e.target.value; schedule(); });
+    $('nwSave').addEventListener('click', () => {
+      const type = $('nwType').value, T = nwTypes()[type], a = { id: nwEditId || ('a' + Date.now()), type }, errs = [];
+      T.fields.forEach(f => {
+        const el = $('nw_' + f.k);
+        let v = f.t === 'chk' ? el.checked : el.value.trim();
+        if (f.t === 'num' && v !== '') { v = +v; if (!isFinite(v)) errs.push(`${f.l}: not a number.`); else if (v < 0) errs.push(`${f.l}: cannot be negative.`); }
+        if (f.req && (v === '' || v == null)) errs.push(`${f.l} is required.`);
+        a[f.k] = v;
+      });
+      if (type === 'fd' && a.startDate && a.maturityDate && a.maturityDate <= a.startDate) errs.push('Maturity date must be after the start date.');
+      if (type === 'gold' && a.form !== 'sgb' && a.purchaseDate && !(a.purchaseCost > 0)) errs.push('Enter the purchase cost too (needed for capital-gains tax).');
+      if (errs.length) { $('nwMsg').innerHTML = `<div class="banner bad">${errs.map(esc).join('<br>')}</div>`; return; }
+      if (!a.name) a.name = type === 'scheme' ? (CFG.settings.netWorth.schemes[a.scheme] || {}).label || a.scheme : T.label;
+      const all = loadNW(), i = all.findIndex(x => x.id === a.id);
+      if (i >= 0) all[i] = a; else all.push(a);
+      saveNW(all);
+      $('nwMsg').innerHTML = `<div class="banner good">${nwEditId ? 'Updated' : 'Added'} “${esc(a.name)}”.</div>`;
+      nwEditId = null; $('nwSave').textContent = 'Add'; $('nwCancel').classList.add('hidden'); renderNwFields(type);
+      schedule();
+    });
+    $('nwCancel').addEventListener('click', () => { nwEditId = null; $('nwSave').textContent = 'Add'; $('nwCancel').classList.add('hidden'); renderNwFields($('nwType').value); $('nwMsg').innerHTML = ''; });
+    $('nwTbl').addEventListener('change', e => {
+      const id = e.target.dataset.nwinc; if (!id) return;
+      const ex = new Set(S.nw.excluded || []); e.target.checked ? ex.delete(id) : ex.add(id); S.nw.excluded = [...ex]; schedule();
+    });
+    $('nwToggles').addEventListener('change', e => {
+      const c = e.target.dataset.nwcls; if (!c) return;
+      const ex = new Set(S.nw.excludedClasses || []); e.target.checked ? ex.delete(c) : ex.add(c); S.nw.excludedClasses = [...ex]; schedule();
+    });
+    $('nwToggles').addEventListener('click', e => { if (e.target.id === 'nwIncAll') { S.nw.excluded = []; S.nw.excludedClasses = []; schedule(); } });
+    $('nwTbl').addEventListener('click', e => {
+      const ed = e.target.closest('[data-nwedit]'), dl = e.target.closest('[data-nwdel]');
+      if (ed) { const a = loadNW().find(x => x.id === ed.dataset.nwedit); if (!a) return; nwEditId = a.id; $('nwType').value = a.type; renderNwFields(a.type, a); $('nwSave').textContent = 'Update'; $('nwCancel').classList.remove('hidden'); $('nwType').scrollIntoView({ block: 'center' }); }
+      if (dl) { const a = loadNW().find(x => x.id === dl.dataset.nwdel); if (a && confirm(`Delete “${a.name}”?`)) { saveNW(loadNW().filter(x => x.id !== a.id)); schedule(); } }
+    });
+    $('bkExport').addEventListener('click', () => {
+      const data = { app: 'siird-dashboard', version: 1, exportedAt: new Date().toISOString(), state: Object.assign({}, S, { rows: (S.rows || []).map(r => { const x = Object.assign({}, r); delete x.uid; return x; }) }), portfolio: PF.load(store), networth: loadNW() };
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' })); a.download = `wealth-dashboard-backup-${TODAY()}.json`;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+      $('bkMsg').innerHTML = '<div class="banner good">Backup file downloaded. Keep it somewhere private — it contains your financial details.</div>';
+    });
+    $('bkImport').addEventListener('change', async e => {
+      const file = e.target.files[0]; if (!file) return; e.target.value = '';
+      let d; try { d = JSON.parse(await file.text()); } catch (err) { $('bkMsg').innerHTML = '<div class="banner bad">Not a valid backup file.</div>'; return; }
+      if (!d || d.app !== 'siird-dashboard') { $('bkMsg').innerHTML = '<div class="banner bad">This file is not a backup from this dashboard.</div>'; return; }
+      if (!confirm(`Replace ALL current data with the backup from ${String(d.exportedAt || '').slice(0, 10)}? (${(d.networth || []).length} assets, ${(d.portfolio || []).length} transactions)`)) return;
+      try { store.setItem(STATE_KEY, JSON.stringify(d.state || {})); PF.save(store, d.portfolio || []); saveNW(d.networth || []); } catch (err) { /* ignore */ }
+      location.reload();
+    });
+  }
+  function nwExtraLeaks() {
+    const out = [];
+    (S.rows || []).forEach(r => { const f = fundById(r.fundId); if (f && f.plan === 'Regular') { const amt = S.capital * r.pct / 100 + S.sip * 12 * r.pct / 100; out.push({ key: 'plan-' + f.id, severity: 'leak', ids: [], title: `Planned fund is a Regular plan: ${f.name}`, annual: amt * CFG.settings.netWorth.defaults.regularPlanExtraTerPct / 100, detail: 'The Direct plan of the same fund usually costs 0.5–1% a year less (estimate on one year of planned investment).' }); } });
+    return out;
+  }
+  let lastNW = null;
+  const isIncluded = a => !(S.nw.excluded || []).includes(a.id) && !(S.nw.excludedClasses || []).includes(NW.TYPE_CLASS[a.type]);
+  function renderNwToggles(all) {
+    const box = $('nwToggles'); if (!box) return;
+    const present = [...new Set(all.map(a => NW.TYPE_CLASS[a.type]))];
+    const exC = S.nw.excludedClasses || [];
+    box.innerHTML = !present.length ? '' : `<div class="legend" style="gap:8px 16px;margin-bottom:8px"><b style="color:var(--ink)">Include in totals &amp; forecast:</b>${present.map(c => `<label style="margin:0;display:inline-flex;gap:5px;align-items:center;color:var(--ink);font-size:13px"><input type="checkbox" data-nwcls="${c}" ${exC.includes(c) ? '' : 'checked'}> ${esc(NW.CLASSES[c])}</label>`).join('')}<button class="btn small" type="button" id="nwIncAll">Include all</button></div>`;
+  }
+  function renderNetWorth() {
+    const ctx = nwCtx(), mine = loadNW(), pa = planAsset();
+    const all = mine.concat(mfAssets(), pa ? [pa] : []);
+    renderNwToggles(all);
+    const assets = all.filter(isIncluded), excludedAssets = all.filter(a => !isIncluded(a));
+    const rows = NW.evaluate(assets, ctx.today, ctx), T = NW.totals(rows);
+    const exRows = excludedAssets.length ? NW.evaluate(excludedAssets, ctx.today, ctx) : [];
+    const L = NW.leaks(assets, ctx).concat(nwExtraLeaks()).sort((a, b) => ({ leak: 0, risk: 1, info: 2 }[a.severity] - { leak: 0, risk: 1, info: 2 }[b.severity]) || b.annual - a.annual);
+    const leakTotal = U.sum(L.filter(l => l.severity === 'leak'), l => l.annual);
+    const exp = +S.nw.monthlyExpenses || 0;
+    const liquidForEmergency = U.sum(rows.filter(r => ['cash', 'savings', 'fd'].includes(r.asset.type) || (r.asset.type === 'mf' && ['liquid', 'arbitrage'].includes(r.asset.category))), r => r.value);
+    lastNW = { netWorth: T.netWorth, liquid: T.liquidNetWorth, afterLiq: T.afterLiquidation, leaks: leakTotal, assets: T.assets, liabilities: T.liabilities };
+    $('nwKpis').innerHTML = !assets.length ? excludedAssets.length ? `<div class="kpi"><div class="l">Everything is unticked</div><div class="s">Tick at least one component above the table to include it.</div></div>` : `<div class="kpi"><div class="l">Nothing added yet</div><div class="s">Add your FDs, gold, land, cash, PPF/EPF, stocks, insurance and loans below. Mutual funds recorded in “My portfolio” are included automatically.</div></div>` : [
+      kpi('Total assets', money(T.assets)), kpi('Loans & dues', money(T.liabilities), '', T.liabilities ? 'neg' : ''),
+      kpi('Net worth', money(T.netWorth), 'assets − liabilities', 'hero'),
+      kpi('Liquid net worth', money(T.liquidNetWorth), 'sellable within ~a week, minus debts'),
+      kpi('If everything were sold today', money(T.afterLiquidation), `after ${money(T.costs)} costs/penalties and ${money(T.tax)} tax`),
+      kpi('Emergency cover', exp > 0 ? (liquidForEmergency / exp).toFixed(1) + ' months' : '—', exp > 0 ? `target ${S.nw.emergencyMonths} months` : 'enter monthly expenses', exp > 0 && liquidForEmergency / exp < +S.nw.emergencyMonths ? 'neg' : ''),
+      kpi('Money leaks', money(leakTotal) + '/yr', `${L.filter(l => l.severity === 'leak').length} found`, leakTotal > 0 ? 'neg' : 'pos')
+    ].join('');
+    // table
+    const growthTxt = a => {
+      const G = CFG.settings.netWorth.defaults.growth, sc = S.scenario, sch = CFG.settings.netWorth.schemes;
+      switch (a.type) {
+        case 'cash': return '0% (no interest)'; case 'savings': return `${a.ratePct || 0}%`; case 'fd': return `${a.ratePct}% ${a.compounding === 'payout' ? 'paid out' : 'compounded ' + a.compounding}`;
+        case 'gold': return `${a.autoTrack !== false ? 'tracks gold ETF; then ' : ''}${catScen('gold_fof', sc)}% (scenario)`; case 'property': return `${a.appreciationPct !== '' && a.appreciationPct != null ? a.appreciationPct : G.property[sc]}%`;
+        case 'scheme': return `${a.ratePct !== '' && a.ratePct != null ? a.ratePct : (sch[a.scheme] || {}).ratePct}%${(sch[a.scheme] || {}).asOf ? ` (${sch[a.scheme].asOf})` : ''}`;
+        case 'stock': return `${a.expectedReturnPct !== '' && a.expectedReturnPct != null ? a.expectedReturnPct : G.stocks[sc]}%`; case 'mf': return `${(+a.growthPct).toFixed(2)}% after TER`;
+        case 'projected': { const ws = U.sum(S.rows || [], r => { const e = eff(r); return e ? (+r.pct || 0) / 100 * (e.ret - e.ter) : 0; }); return `${ws.toFixed(2)}% after TER (weighted, ${CFG.settings.scenarios[sc].label})`; }
+        case 'loan': { const m = NW.loanMonthsLeft(a); return `${a.ratePct}%${m ? (m === Infinity ? ' · EMI below interest!' : ` · ~${m} months left`) : ''}`; }
+        case 'insurance': { const irr = NW.policyIrr(a); return a.kind === 'term' ? 'protection' : irr != null ? `IRR ${(irr * 100).toFixed(2)}%` : a.kind === 'ulip' ? `${a.expectedReturnPct || G.ulip[sc]}% − ${a.chargesPct || 0}% charges` : '—'; }
+        case 'other': return `${a.growthPct || 0}%`; default: return '';
+      }
+    };
+    const types = nwTypes();
+    const typeLabel = a => a.type === 'mf' ? 'Mutual fund (My portfolio)' : a.type === 'projected' ? 'Planned investment' : (types[a.type] || {}).label || a.type;
+    const exClasses = S.nw.excludedClasses || [];
+    const rowHtml = (r, inc) => {
+      const a = r.asset, clsOff = exClasses.includes(NW.TYPE_CLASS[a.type]);
+      const action = a.type === 'projected' ? '<a class="note" href="#allocation">edit in simulator</a>' : a.readOnly ? '<a class="note" href="#portfolio">from My portfolio</a>' : `<button class="btn small" data-nwedit="${esc(a.id)}" type="button">Edit</button> <button class="btn small danger" data-nwdel="${esc(a.id)}" type="button" aria-label="Delete">✕</button>`;
+      return `<tr${inc ? '' : ' style="opacity:.5"'}><td><input type="checkbox" data-nwinc="${esc(a.id)}" ${inc ? 'checked' : ''} ${clsOff ? 'disabled title="Whole type is unticked above"' : ''} aria-label="Include ${esc(a.name)}"></td><td class="tl">${esc(typeLabel(a))}</td><td class="fundname tl">${esc(a.name)}</td><td class="${r.value < 0 ? 'neg' : ''}"><b>${money(r.value)}</b>${inc ? '' : '<div class="note">not counted</div>'}</td><td class="tl note">${esc(growthTxt(a))}</td><td class="neg">${r.costs ? money(r.costs) : '—'}</td><td class="neg">${r.tax ? money(r.tax) : '—'}</td><td>${money(r.net)}</td><td class="wrap tl note">${esc(r.liquidity)}</td><td class="wrap reason">${r.notes.map(esc).join('<br>')}</td><td>${action}</td></tr>`;
+    };
+    $('nwTbl').innerHTML = !rows.length && !exRows.length ? '<tr><td class="mut">No assets or liabilities yet.</td></tr>' : '<tr><th title="Include in totals and forecast">✓</th><th>Type</th><th>Name</th><th>Value today</th><th>Growth / rate</th><th>Costs if sold</th><th>Tax if sold</th><th>Net if sold today</th><th class="wrap">Liquidity</th><th class="wrap">Notes</th><th></th></tr>'
+      + [...rows].sort((a, b) => b.value - a.value).map(r => rowHtml(r, true)).join('')
+      + `<tr class="tot"><td></td><td colspan="2">Net worth (ticked items)</td><td>${money(T.netWorth)}</td><td></td><td>${money(T.costs)}</td><td>${money(T.tax)}</td><td>${money(T.afterLiquidation)}</td><td colspan="3"></td></tr>`
+      + (exRows.length ? `<tr><td colspan="11" class="tl note" style="padding-top:12px">Not counted (${exRows.length}) — tick to include:</td></tr>` + exRows.map(r => rowHtml(r, false)).join('') : '');
+    $('nwTblNote').textContent = rows.cgTax ? `Capital-gains tax for stocks, mutual funds and gold is computed together (losses set off; one ₹1.25 lakh equity exemption). Property uses the cheaper of 12.5% or 20% with indexation where allowed. Slab rate ${S.tax.slab}%.` : '';
+    // leaks
+    $('leakTbl').innerHTML = !L.length ? '<tr><td class="pos">No leaks found from the information entered.</td></tr>' : '<tr><th>Type</th><th class="wrap">Finding</th><th>Est. ₹ a year</th></tr>' + L.map(l => `<tr><td class="tl"><span class="pill ${l.severity === 'leak' ? 'bad' : l.severity === 'risk' ? 'warn' : ''}">${l.severity === 'leak' ? 'Leak' : l.severity === 'risk' ? 'Risk' : 'Info'}</span></td><td class="wrap tl"><b>${esc(l.title)}</b>${l.detail ? `<div class="reason">${esc(l.detail)}</div>` : ''}</td><td class="${l.annual ? 'neg' : 'mut'}">${l.annual ? money(l.annual) : '—'}</td></tr>`).join('') + (leakTotal ? `<tr class="tot"><td></td><td class="tl">Total estimated leaks</td><td class="neg">${money(leakTotal)}/yr</td></tr>` : '');
+    // charts
+    const byClass = Object.entries(T.byClass).filter(([k, v]) => v > 0 && k !== 'loan');
+    chart('nwChart', { type: 'doughnut', data: { labels: byClass.map(([k]) => NW.CLASSES[k]), datasets: [{ data: byClass.map(([, v]) => Math.round(v)), backgroundColor: byClass.map((_, i) => col(i)), borderWidth: 0 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'right', labels: { color: cssv('--mut'), boxWidth: 10, font: { size: 11 } } }, tooltip: { callbacks: { label: c => `${c.label}: ${money(c.parsed)} (${T.assets ? (c.parsed / T.assets * 100).toFixed(1) : 0}%)` } } } } });
+    if (!assets.length) { $('nwFcTbl').innerHTML = ''; $('nwFcNote').textContent = ''; $('kpisNW').innerHTML = `<div class="kpi"><div class="l">Net worth</div><div class="s">Add assets in <a href="#networth">Net worth</a>${all.length ? ' or tick components to include them' : ''}.</div></div>`; return; }
+    const fc = NW.forecast(assets, ctx, endDate());
+    const end = fc[fc.length - 1], planRow = rows.find(r => r.asset.type === 'projected'), mfRows = rows.filter(r => r.asset.type === 'mf');
+    $('kpisNW').innerHTML = [
+      kpi('Net worth today (ticked components)', money(T.netWorth), `${assets.length} of ${all.length} items included`, 'hero'),
+      kpi('of which mutual funds', money(U.sum(mfRows, r => r.value) + (planRow ? planRow.value : 0)), `${mfRows.length ? money(U.sum(mfRows, r => r.value)) + ' tracked' : 'none tracked'}${planRow ? ` + ${money(planRow.value)} planned` : ''}`),
+      kpi(`Net worth on ${end.date}`, money(end.netWorth), `${end.year} yrs · ${CFG.settings.scenarios[S.scenario].label}`),
+      kpi('If all sold then', money(end.afterLiquidation), 'after costs, penalties & tax'),
+      kpi("…in today's money", money(end.real), `at ${S.inflation}% inflation`),
+      kpi('Money leaks', money(leakTotal) + '/yr', '', leakTotal > 0 ? 'neg' : 'pos')
+    ].join('');
+    chart('nwFcChart', { type: 'line', data: { labels: fc.map(p => p.year === 0 ? 'Today' : 'Yr ' + p.year), datasets: [
+      { label: 'Net worth', data: fc.map(p => Math.round(p.netWorth)), borderColor: col(0), tension: .2, pointRadius: 2 },
+      { label: 'If sold (after costs & tax)', data: fc.map(p => Math.round(p.afterLiquidation)), borderColor: col(1), borderDash: [5, 4], tension: .2, pointRadius: 2 },
+      { label: "In today's money", data: fc.map(p => Math.round(p.real)), borderColor: cssv('--c8'), tension: .2, pointRadius: 2 }] }, options: baseOpts() });
+    const hs = [...new Set([5, 7, 10, U.round(horizonYears(), 2)])].sort((a, b) => a - b);
+    $('nwFcTbl').innerHTML = '<tr><th>In</th><th>Date</th><th>Net worth</th><th>If all sold then (after costs &amp; tax)</th><th>In today\'s money</th><th>Future contributions included</th></tr>' + hs.map(h => {
+      const d = h === U.round(horizonYears(), 2) ? endDate() : U.iso(U.addMonths(ctx.today, Math.round(h * 12)));
+      const t = NW.totals(NW.evaluate(assets, d, ctx));
+      return `<tr${h === U.round(horizonYears(), 2) ? ' class="sel"' : ''}><td>${h} yrs</td><td>${esc(d)}</td><td><b>${money(t.netWorth)}</b></td><td>${money(t.afterLiquidation)}</td><td>${money(t.netWorth / Math.pow(1 + S.inflation / 100, U.yearsBetween(ctx.today, d)))}</td><td>${money(t.contrib)}</td></tr>`;
+    }).join('');
+    $('nwFcNote').textContent = `${CFG.settings.scenarios[S.scenario].label} scenario. Loans reduce as EMIs are paid (EMIs themselves are not deducted from assets). PPF/EPF and policy premiums you will pay in future are included in the forecast values (column at right). Rates for government schemes: ${CFG.settings.netWorth.note}`;
+  }
+
+  // ------------------------------------------------------------------ check
+  const CHECK_KEY = 'siird.lastCheck.v1';
+  function bindCheck() { document.addEventListener('click', e => { if (e.target.closest('#checkBtn, [data-check]')) doCheck(); }); }
+  async function doCheck() {
+    const btns = [...document.querySelectorAll('#checkBtn, [data-check]')];
+    btns.forEach(b => { b.disabled = true; b.dataset.t = b.textContent; b.textContent = 'Checking…'; });
+    try {
+      clearTimeout(saveTimer); try { const c = Object.assign({}, S, { rows: S.rows && S.rows.map(r => { const x = Object.assign({}, r); delete x.uid; return x; }) }); store.setItem(STATE_KEY, JSON.stringify(c)); } catch (e) { /* ignore */ }
+      await loadData();
+      renderAll();
+      const issues = [];
+      const errs = Calc.validateInputs({ capital: +S.capital, sip: +S.sip, startDate: S.startDate, endDate: endDate(), inflationPct: +S.inflation });
+      errs.forEach(e => issues.push(['bad', e]));
+      const chk = Calc.allocationCheck((S.rows || []).map(r => ({ pct: r.pct })), S.capital);
+      if (!chk.ok) issues.push(['bad', 'Allocation: ' + chk.message]);
+      (S.rows || []).forEach(r => { const f = fundById(r.fundId); if (f && f.userEntered && !f.schemeCode) issues.push(['warn', `${f.name}: no AMFI scheme code, so no live NAV.`]); });
+      loadNW().forEach(a => {
+        if (a.type === 'gold' && a.form !== 'sgb' && !(a.purchaseCost > 0)) issues.push(['warn', `${a.name}: purchase cost/date missing — tax on sale not estimated.`]);
+        if (a.type === 'insurance' && ['endowment', 'moneyback'].includes(a.kind) && NW.policyIrr(a) == null) issues.push(['warn', `${a.name}: add start/maturity date, premium and maturity value to check its return.`]);
+        if (a.type === 'fd' && a.maturityDate && a.maturityDate < TODAY()) issues.push(['warn', `${a.name}: FD matured on ${a.maturityDate} — update or remove it.`]);
+        if (a.type === 'loan' && a.emi > 0 && NW.loanMonthsLeft(a) === Infinity) issues.push(['bad', `${a.name}: EMI is less than the monthly interest — the loan never reduces.`]);
+      });
+      if (!(+S.nw.monthlyExpenses > 0)) issues.push(['warn', 'Monthly expenses not entered — emergency fund and idle-cash checks are skipped.']);
+      const staleN = allFunds().filter(f => f.schemeCode && (() => { const l = latestNav(f.schemeCode); return !l || DS.freshness(l.date, l.fetchedAt).navStale; })()).length;
+      if (staleN) issues.push(['warn', `${staleN} fund(s) have stale or unavailable NAV data.`]);
+      if (U.daysBetween(CFG.funds.snapshotDate, TODAY()) > CFG.funds.maxAgeDays) issues.push(['warn', 'Factsheet snapshot is older than ' + CFG.funds.maxAgeDays + ' days.']);
+      if (TODAY() > CFG.tax.reviewBy) issues.push(['warn', 'Tax rules are past their review date — re-verify after the latest Budget.']);
+      const snap = { at: new Date().toISOString(), netWorth: lastNW ? lastNW.netWorth : 0, liquid: lastNW ? lastNW.liquid : 0, afterLiq: lastNW ? lastNW.afterLiq : 0, leaks: lastNW ? lastNW.leaks : 0, projNet: RES ? RES.net : null, projLost: RES ? RES.totalLost : null };
+      let prev = null; try { prev = JSON.parse(store.getItem(CHECK_KEY) || 'null'); } catch (e) { /* ignore */ }
+      try { store.setItem(CHECK_KEY, JSON.stringify(snap)); } catch (e) { /* ignore */ }
+      const d = (k, label, goodUp = true) => {
+        const now = snap[k]; if (now == null) return '';
+        const was = prev && prev[k] != null ? prev[k] : null, delta = was == null ? null : now - was;
+        const cls = delta == null || Math.abs(delta) < 0.5 ? '' : ((delta > 0) === goodUp ? 'pos' : 'neg');
+        return `<li>${label}: <b>${money(now)}</b>${delta == null ? '' : ` <span class="${cls}">(${delta >= 0 ? '+' : '−'}${money(Math.abs(delta)).replace('−', '')} since last check)</span>`}</li>`;
+      };
+      $('checkResult').innerHTML = `<div class="banner ${issues.some(i => i[0] === 'bad') ? 'bad' : issues.length ? 'warn' : 'good'}">
+        <div class="row" style="justify-content:space-between;align-items:center"><b>✓ Checked at ${esc(new Date().toLocaleString('en-IN'))}</b><button class="btn small" type="button" id="checkClose">Close</button></div>
+        <div class="note">${prev ? `Compared with your last check on ${esc(new Date(prev.at).toLocaleString('en-IN'))}.` : 'First check — the next one will show what changed.'} Live NAVs refreshed; all sections recalculated and saved.</div>
+        <div class="grid g2" style="margin-top:6px"><ul class="tight">${d('netWorth', 'Net worth')}${d('liquid', 'Liquid net worth')}${d('afterLiq', 'If everything were sold today')}${d('leaks', 'Money leaks per year', false)}</ul>
+        <ul class="tight">${d('projNet', `Plan: net amount on ${endDate()}`)}${d('projLost', 'Plan: lost to charges & taxes', false)}</ul></div>
+        ${issues.length ? `<b>Needs attention</b><ul class="tight">${issues.map(([t, m]) => `<li class="${t === 'bad' ? 'neg' : 'warnc'}">${esc(m)}</li>`).join('')}</ul>` : '<p class="pos" style="margin:4px 0 0">No problems found.</p>'}</div>`;
+      $('checkClose').addEventListener('click', () => { $('checkResult').innerHTML = ''; });
+      $('checkResult').scrollIntoView({ block: 'start' });
+    } finally {
+      btns.forEach(b => { b.disabled = false; b.textContent = b.dataset.t || '✓ Check'; });
+    }
   }
 
   // ------------------------------------------------------------------ chart helpers

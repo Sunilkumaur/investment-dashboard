@@ -272,10 +272,128 @@ section('13. Recommendation engine respects minimums, horizon and 100% total');
 }
 
 // ---------------------------------------------------------------------------
+section('13b. Category auto-detection for custom AMFI schemes');
+{
+  const g = FR.guessCategory;
+  ok(g('Equity Scheme - Large Cap Fund', 'X Bluechip') === 'largecap', 'large cap');
+  ok(g('Equity Scheme - Large & Mid Cap Fund', 'X') === 'equity_other', 'large & mid cap → other diversified equity');
+  ok(g('Equity Scheme - ELSS', 'X Tax Saver') === 'elss', 'ELSS');
+  ok(g('Other Scheme - Index Funds', 'X Nifty 50 Index Fund') === 'index_largecap', 'Nifty 50 index');
+  ok(g('Other Scheme - Index Funds', 'X Nifty Next 50 Index') === 'index_next50', 'Next 50 index');
+  ok(g('Other Scheme - Index Funds', 'X Nifty G-Sec Jun 2036 Index') === 'debt_other', 'G-Sec index → debt');
+  ok(g('Other Scheme - FoF Overseas', 'X US Equity FoF') === 'international_fof', 'overseas FoF');
+  ok(g('Other Scheme - Gold ETF', 'X Gold ETF') === 'gold_etf', 'gold ETF');
+  ok(g('Hybrid Scheme - Multi Asset Allocation', 'X') === 'multi_asset', 'multi asset');
+  ok(g('Debt Scheme - Liquid Fund', 'X') === 'liquid', 'liquid');
+  ok(g('', '') === null, 'unknown → null (user must choose)');
+}
+
+section('17. Net worth: valuation of each asset type');
+const NW = require('../js/networth.js');
+const nwCtx = (extra = {}) => Object.assign({ today: '2026-11-15', rules, nw: settings.netWorth, scen: 'm', slabRatePct: 20, cessPct: 4, surchargePct: 0, inflationPct: 6, goldGrowthPct: 8, liquidYieldPct: 6.5, profile: { monthlyExpenses: 40000, emergencyMonths: 6 } }, extra);
+{
+  const ctx = nwCtx();
+  const fd = { id: 'f', type: 'fd', principal: 100000, ratePct: 7, startDate: '2025-11-15', maturityDate: '2028-11-15', compounding: 'quarterly' };
+  near(NW.valueAt(fd, '2026-11-15', ctx).value, 100000 * Math.pow(1 + 0.07 / 4, 4 * (365 / 365)), 0.01, 'FD quarterly compounding after 1 year');
+  near(NW.valueAt(fd, '2028-11-15', ctx).value, 100000 * Math.pow(1.0175, 4 * (U.daysBetween('2025-11-15', '2028-11-15') / 365)), 0.01, 'FD maturity value');
+  near(NW.valueAt(Object.assign({}, fd, { compounding: 'payout' }), '2027-11-15', ctx).value, 100000, 1e-9, 'payout FD keeps principal');
+  near(NW.fdEffYield(fd), Math.pow(1.0175, 4) - 1, 1e-12, 'FD effective annual yield');
+  // gold auto-tracking: price entered 10,000/g on a date when NAV was 100; NAV now 110 → 11,000/g
+  const navs = { '2026-06-01': 100, '2026-11-13': 110 };
+  const gctx = nwCtx({ goldNav: d => (U.iso(d) >= '2026-11-13' ? 110 : 100), goldLatestDate: '2026-11-13' });
+  const gold = { id: 'g', type: 'gold', form: 'jewellery', grams: 20, purity: 22, pricePerGram: 10000, priceDate: '2026-06-01', autoTrack: true, purchaseDate: '2020-01-01', purchaseCost: 80000 };
+  near(NW.valueAt(gold, '2026-11-15', gctx).value, 20 * (22 / 24) * 11000, 0.01, 'gold value = grams × purity × price moved with gold ETF NAV');
+  near(NW.valueAt(Object.assign({}, gold, { autoTrack: false }), '2026-11-15', gctx).value, 20 * (22 / 24) * 10000, 0.01, 'manual gold price stays as entered');
+  const loan = { id: 'l', type: 'loan', kind: 'personal', outstanding: 100000, ratePct: 12, emi: 4707.35, asOf: '2026-11-15' };
+  near(NW.loanBalance(loan, '2028-11-15'), 0, 5, 'EMI 4,707 at 12% repays ₹1L in 24 months');
+  ok(NW.loanMonthsLeft(loan) === 24, 'months left = 24', String(NW.loanMonthsLeft(loan)));
+  const ppf = { id: 'p', type: 'scheme', scheme: 'PPF', balance: 100000, annualContribution: 0 };
+  near(NW.valueAt(ppf, '2027-11-15', ctx).value, 107100, 0.01, 'PPF grows at the sourced 7.1%');
+  const pol = { id: 'i', type: 'insurance', kind: 'endowment', annualPremium: 50000, startDate: '2016-01-01', maturityDate: '2036-01-01', premiumYears: 20, maturityValue: 1600000, surrenderValue: 500000 };
+  const irr = NW.policyIrr(pol);
+  ok(irr > 0.04 && irr < 0.05, `endowment IRR ≈ 4.4% (₹50k × 20 yrs → ₹16L)`, String(irr));
+  ok(NW.valueAt({ id: 't', type: 'insurance', kind: 'term', annualPremium: 12000 }, '2026-11-15', ctx).value === 0, 'term insurance has no asset value');
+}
+
+section('18. Net worth: totals, liquidation tax and shared equity exemption');
+{
+  const ctx = nwCtx();
+  const assets = [
+    { id: 'c', type: 'cash', amount: 50000 },
+    { id: 's', type: 'stock', quantity: 100, avgPrice: 1000, currentPrice: 2000, buyDate: '2023-01-01', taxClass: 'equity_oriented' },
+    { id: 'm', type: 'mf', value: 200000, taxClass: 'equity_oriented', lots: [{ buyDate: '2023-01-01', cost: 100000, value: 200000 }], growthPct: 10 },
+    { id: 'l', type: 'loan', kind: 'car', outstanding: 300000, ratePct: 9, emi: 0 }
+  ];
+  const rows = NW.evaluate(assets, '2026-11-15', ctx), T = NW.totals(rows);
+  near(T.netWorth, 50000 + 200000 + 200000 - 300000, 1e-6, 'net worth = assets − liabilities');
+  near(T.liabilities, 300000, 1e-6, 'liabilities total');
+  // stock gain ≈ 1L (minus small selling costs) + MF gain 1L → ~2L LTCG, ONE ₹1.25L exemption shared
+  const sellCost = 200000 * 0.0012, stt = 200000 * 0.001;
+  const stockGain = 200000 - (sellCost - stt) - 100000;
+  near(rows.cgTax.tax, (stockGain + 100000 - 125000) * 0.125 * 1.04, 0.01, 'stocks + MF share one ₹1.25L exemption (not counted twice)');
+  // property: lower of 12.5% and 20% with indexation
+  const prop = (buy) => ({ id: 'p', type: 'property', subtype: 'land', purchaseDate: buy, purchaseCost: 2000000, currentValue: 6000000, valuationDate: '2026-11-15', sellCostPct: 0 });
+  const r1 = NW.evaluate([prop('2015-06-01')], '2026-11-15', ctx)[0];
+  near(r1.tax, Math.min(4000000 * 0.125, (6000000 - 2000000 * 384 / 254) * 0.20) * 1.04, 1, 'land bought 2015: lower of 12.5% vs 20%-indexed (12.5% wins)');
+  const r2 = NW.evaluate([prop('2005-06-01')], '2026-11-15', ctx)[0];
+  near(r2.tax, Math.max(0, (6000000 - 2000000 * 384 / 117)) * 0.20 * 1.04, 1, 'land bought 2005: indexed cost ₹65.6L > sale → ₹0 tax under the 20% option');
+  const r3 = NW.evaluate([prop('2024-08-01')], '2026-11-15', ctx)[0];
+  near(r3.tax, 4000000 * 0.125 * 1.04, 1, 'land bought after 23 Jul 2024 (held >24 months): only 12.5% without indexation');
+  const r4 = NW.evaluate([prop('2025-01-01')], '2026-11-15', ctx)[0];
+  near(r4.tax, 4000000 * 0.20 * 1.04, 1, 'land held 22 months: short-term at slab');
+  const sgb = { id: 'b', type: 'gold', form: 'sgb', grams: 10, pricePerGram: 12000, autoTrack: false, purchaseDate: '2017-01-01', purchaseCost: 29000 };
+  ok(NW.evaluate([sgb], '2026-11-15', ctx)[0].tax === 0, 'SGB held to 8-yr maturity: gain exempt');
+  const fc = NW.forecast([{ id: 'c', type: 'cash', amount: 100000 }], ctx, '2031-11-15');
+  ok(fc.length === 6 && fc[5].netWorth === 100000, '5-yr forecast has 6 points; cash stays flat');
+  near(fc[5].real, 100000 / Math.pow(1.06, U.yearsBetween('2026-11-15', '2031-11-15')), 0.01, 'real value deflated by inflation');
+}
+
+section('18b. Planned investment as a net-worth component');
+{
+  const stub = d => d <= '2026-11-15' ? { value: 9000, contrib: 0, costs: 0, lots: [] }
+    : { value: 100000, contrib: 12000, costs: 50, lots: [{ buyDate: '2026-11-15', cost: 20000, proceeds: 99950, taxClass: 'equity_oriented' }] };
+  const ctx = nwCtx({ projectors: { plan: stub } });
+  const plan = { id: 'plan', type: 'projected', name: 'Plan' };
+  const stock = { id: 's', type: 'stock', quantity: 100, avgPrice: 1000, currentPrice: 2000, buyDate: '2020-01-01', taxClass: 'equity_oriented', expectedReturnPct: 0 };
+  const today = NW.totals(NW.evaluate([plan], '2026-11-15', ctx));
+  near(today.netWorth, 9000, 1e-9, 'plan counts its lump sum today');
+  const rows = NW.evaluate([plan, stock], '2031-11-15', ctx), T = NW.totals(rows);
+  near(T.netWorth, 100000 + 200000, 1e-6, 'plan value at horizon added to net worth');
+  near(T.contrib, 12000, 1e-9, 'future SIP contributions reported');
+  const stockGain = 200000 - (200000 * 0.0012 - 200000 * 0.001) - 100000;
+  near(rows.cgTax.tax, (stockGain + 79950 - 125000) * 0.125 * 1.04, 0.01, 'plan + stocks share ONE ₹1.25L equity exemption');
+  near(rows[0].costs, 50, 1e-9, 'plan exit loads / sell charges carried through');
+  near(NW.totals(NW.evaluate([plan], '2031-11-15', nwCtx())).netWorth, 0, 1e-9, 'no projector → contributes nothing (no invented value)');
+}
+
+section('19. Money leaks');
+{
+  const ctx = nwCtx();
+  const L = NW.leaks([
+    { id: 'c', type: 'cash', amount: 140000 },
+    { id: 'sv', type: 'savings', balance: 500000, ratePct: 2.5 },
+    { id: 'fd', type: 'fd', principal: 100000, ratePct: 6.5, startDate: '2026-01-01', maturityDate: '2029-01-01', compounding: 'quarterly' },
+    { id: 'cc', type: 'loan', kind: 'credit_card', outstanding: 50000, ratePct: 42 },
+    { id: 'pl', type: 'property', subtype: 'land', currentValue: 2000000, annualCosts: 15000, annualRent: 0 },
+    { id: 'g', type: 'gold', form: 'jewellery', grams: 10, purity: 22, pricePerGram: 12000, autoTrack: false, lockerFee: 3000 }
+  ], ctx);
+  const get = k => L.find(l => l.key === k || l.key.startsWith(k));
+  near(get('cash').annual, (140000 - 40000) * 0.06, 0.01, 'idle cash beyond one month of expenses × inflation');
+  near(get('savings').annual, (500000 - (240000 - 140000)) * (0.065 - 0.025) * (1 - 0.208), 0.01, 'savings above emergency fund × yield gap (after tax)');
+  const post = (Math.pow(1 + 0.065 / 4, 4) - 1) * (1 - 0.208);
+  near(get('fd-').annual, NW.valueAt({ type: 'fd', principal: 100000, ratePct: 6.5, startDate: '2026-01-01', maturityDate: '2029-01-01', compounding: 'quarterly' }, '2026-11-15', ctx).value * (0.06 - post), 0.01, 'FD real loss after tax');
+  near(get('debt-').annual, 50000 * 0.42, 0.01, 'credit-card interest flagged');
+  near(get('prop-').annual, 15000, 0.01, 'land holding cost with no income');
+  near(get('locker-').annual, 3000, 0.01, 'gold locker fee');
+  ok(L.every(l => isFinite(l.annual)), 'all leak amounts finite');
+  ok(NW.leaks([], nwCtx({ profile: { monthlyExpenses: 0 } })).some(l => l.key === 'noexp'), 'asks for monthly expenses when missing');
+}
+
+// ---------------------------------------------------------------------------
 section('14. Data service: API failure, fallback and stale data');
 (async () => {
   const failing = async () => { throw new Error('network down'); };
-  const ds = DS.create(settings, { fetch: failing, storage: DS.safeStorage() });
+  const ds = DS.create(settings, { fetch: failing, storage: DS.safeStorage(), retryDelayMs: 0 });
   const r = await ds.getHistory(120716);
   ok(r.hist.length === 0 && /network down/.test(r.error), 'all sources down → empty history with error (nothing invented)');
   ds.cacheMetrics(120716, { metrics: { latestNav: 100, latestDate: '2026-11-01' }, fetchedAt: '2026-11-01T00:00:00Z' });
@@ -288,6 +406,11 @@ section('14. Data service: API failure, fallback and stale data');
   const ds2 = DS.create(settings, { fetch: okFetch, storage: DS.safeStorage() });
   const r2 = await ds2.getHistory(120716);
   ok(r2.hist.length === 2 && r2.hist[0].d === '2026-11-12' && r2.source === 'mfapi.in', 'mfapi parse: ascending, invalid rows dropped, backend absent → direct');
+  let calls = 0;
+  const flaky = async (url) => { if (/health/.test(url)) return { ok: false, status: 404, json: async () => ({}) }; calls++; if (calls === 1) throw new TypeError('Failed to fetch (CORS)'); return { ok: true, status: 200, json: async () => ({ meta: {}, data: [{ date: '13-11-2026', nav: '10' }] }) }; };
+  const ds3 = DS.create(settings, { fetch: flaky, storage: DS.safeStorage(), retryDelayMs: 0 });
+  const r3 = await ds3.getHistory(125354);
+  ok(r3.hist.length === 1 && r3.attempts === 2, 'mfapi CORS-blocked first response → retried with a fresh cache key and succeeded');
 
   // -------------------------------------------------------------------------
   section('15. Portfolio tracker: multiple lots, FIFO, realized vs unrealized');
