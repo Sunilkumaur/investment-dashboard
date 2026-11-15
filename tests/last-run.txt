@@ -1,0 +1,34 @@
+
+▶ 1. ₹9,000 lump-sum projection, 5 / 7 / 10 years (no charges, no TER, no tax)
+
+▶ 2. Monthly SIP contributions & values
+
+▶ 3. Different return assumptions & expense ratios
+
+▶ 4. Tax: equity-oriented funds (current law)
+
+▶ 5. Tax: debt, gold FoF, gold ETF, international, G-Sec
+
+▶ 6. Tax rules by date (historical rule sets preserved)
+
+▶ 7. Set-off, surcharge cap, multiple FYs
+
+▶ 8. SIP taxation lot by lot
+
+▶ 9. Exit loads
+
+▶ 10. Redemption: stamp duty, STT, ETF charges and the gross → net identity
+
+▶ 11. Allocation totals & input validation
+
+▶ 12. Fund metrics from NAV history; missing data
+
+▶ 13. Recommendation engine respects minimums, horizon and 100% total
+
+▶ 14. Data service: API failure, fallback and stale data
+
+▶ 15. Portfolio tracker: multiple lots, FIFO, realized vs unrealized
+
+▶ 16. XIRR
+
+131 passed, 0 failed

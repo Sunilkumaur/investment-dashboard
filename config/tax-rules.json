@@ -1,0 +1,300 @@
+{
+  "version": "2026.11.15",
+  "jurisdiction": "India — resident individual investor",
+  "lastVerified": "2026-11-15",
+  "reviewBy": "2027-02-15",
+  "reviewNote": "Re-verify after the Union Budget (1 Feb 2027) and the Finance Act 2027. Edit this file (or use the Tax settings panel for what-if analysis); never edit the engine code to change a rate.",
+  "disclaimer": "Estimates only. Final tax liability depends on your total income, regime choice, other gains and losses in the same financial year, carry-forward losses, rebates (e.g. section 87A), marginal relief and the law in force on the date you redeem. Consult a qualified tax professional before acting.",
+
+  "defaults": {
+    "slabRatePct": 20,
+    "cessPct": 4,
+    "surchargeBracket": "upto50L",
+    "redemptionFYs": 1
+  },
+
+  "surchargeBrackets": [
+    { "id": "upto50L",  "label": "Total income up to ₹50 lakh",   "pct": 0 },
+    { "id": "50Lto1Cr", "label": "₹50 lakh – ₹1 crore",            "pct": 10 },
+    { "id": "1to2Cr",   "label": "₹1 crore – ₹2 crore",            "pct": 15 },
+    { "id": "2to5Cr",   "label": "₹2 crore – ₹5 crore",            "pct": 25 },
+    { "id": "above5Cr", "label": "Above ₹5 crore (new regime cap 25%; old regime 37%)", "pct": 25 }
+  ],
+  "specialRateSurchargeCapPct": 15,
+  "specialRateSurchargeCapNote": "Surcharge on STCG u/s 111A and on all LTCG (112, 112A) is capped at 15% (Finance Act 2022 onwards). Marginal relief is not modelled.",
+
+  "taxClasses": {
+    "equity_oriented": {
+      "label": "Equity-oriented fund",
+      "description": "Mutual funds/ETFs with ≥65% in domestic listed equity: domestic equity index funds, active equity funds, equity ETFs and arbitrage funds. STT is paid on redemption."
+    },
+    "debt_specified": {
+      "label": "Debt-oriented fund ('specified mutual fund')",
+      "description": "Funds investing >65% in debt & money-market instruments (liquid, overnight, corporate bond, gilt, G-Sec index funds, target-maturity funds), or FoFs investing ≥65% in such funds."
+    },
+    "commodity_fof": {
+      "label": "Gold / silver mutual fund or FoF (unlisted)",
+      "description": "Gold savings funds and gold ETF fund-of-funds. Not 'specified' under the definition effective 1 Apr 2025."
+    },
+    "international_fof": {
+      "label": "International / overseas FoF (unlisted)",
+      "description": "Funds investing in overseas equity or overseas funds. Not equity-oriented for Indian tax purposes."
+    },
+    "listed_non_equity_etf": {
+      "label": "Gold / silver ETF (listed on exchange)",
+      "description": "Commodity ETFs bought and sold on NSE/BSE. Listed security → 12-month long-term threshold. No STT on non-equity ETFs."
+    },
+    "gsec_listed": {
+      "label": "Listed Government Security / bond held directly",
+      "description": "G-Secs/SDLs/T-bills bought via RBI Retail Direct or exchange. Interest/coupon is taxed at slab rate annually (not modelled in redemption gains)."
+    }
+  },
+
+  "ruleSets": [
+    {
+      "id": "FA2018",
+      "label": "Finance Act 2018 regime (equity LTCG 10%)",
+      "effectiveFrom": "2018-04-01",
+      "effectiveTo": "2024-07-22",
+      "appliesBy": "transfer (redemption) date",
+      "equity112AExemption": 100000,
+      "sources": [
+        { "label": "Income Tax Dept – Section 112A", "url": "https://www.incometaxindia.gov.in/w/section-112a-60" },
+        { "label": "Income Tax Dept – Section 111A", "url": "https://www.incometaxindia.gov.in/w/section-111a-22" }
+      ],
+      "notes": [
+        "Grandfathering of equity gains up to 31 Jan 2018 (FMV rule) is NOT modelled — lots bought before 1 Feb 2018 use actual cost.",
+        "Specified mutual fund (Sec 50AA, Finance Act 2023): funds with ≤35% domestic equity acquired on/after 1 Apr 2023 — gains always short-term at slab."
+      ],
+      "classes": {
+        "equity_oriented": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "eqST", "rate": 15, "section": "111A" },
+            "lt": { "kind": "eqLT", "rate": 10, "section": "112A", "exemptionPool": "112A" } }
+        ],
+        "debt_specified": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 36,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLTidx", "rate": 20, "indexation": true, "section": "112 (with indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (deemed STCG, slab)" } }
+        ],
+        "commodity_fof": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 36,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLTidx", "rate": 20, "indexation": true, "section": "112 (with indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (≤35% equity → specified MF)" } }
+        ],
+        "international_fof": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 36,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLTidx", "rate": 20, "indexation": true, "section": "112 (with indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (≤35% equity → specified MF)" } }
+        ],
+        "listed_non_equity_etf": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 36,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLTidx", "rate": 20, "indexation": true, "section": "112 (with indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (≤35% equity → specified MF)" } }
+        ],
+        "gsec_listed": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 10, "section": "112 proviso (10% without indexation)" } }
+        ]
+      }
+    },
+
+    {
+      "id": "FA2024",
+      "label": "Finance (No. 2) Act 2024 (from 23 Jul 2024)",
+      "effectiveFrom": "2024-07-23",
+      "effectiveTo": "2025-03-31",
+      "appliesBy": "transfer (redemption) date",
+      "equity112AExemption": 125000,
+      "sources": [
+        { "label": "Business Standard – Budget 2024 capital gains changes", "url": "https://www.business-standard.com/amp/markets/news/budget-2024-hikes-ltcg-tax-rate-to-12-5-stcg-to-20-stt-on-f-o-also-up-124072300553_1.html" },
+        { "label": "DSP MF – Budget 2024 note", "url": "https://www.dspim.com/latest-literature/dsp-note-budget-2024.pdf" }
+      ],
+      "notes": [
+        "STCG on equity raised 15% → 20%; LTCG 10% → 12.5%; 112A exemption ₹1 lakh → ₹1.25 lakh.",
+        "Indexation removed; long-term threshold 24 months for unlisted assets, 12 months for listed securities.",
+        "FY 2024-25 transitional rule (single ₹1.25 lakh exemption across the year) is approximated by applying the rule set in force on the transfer date."
+      ],
+      "classes": {
+        "equity_oriented": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "eqST", "rate": 20, "section": "111A" },
+            "lt": { "kind": "eqLT", "rate": 12.5, "section": "112A", "exemptionPool": "112A" } }
+        ],
+        "debt_specified": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (deemed STCG, slab)" } }
+        ],
+        "commodity_fof": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (old ≤35% equity definition)" } }
+        ],
+        "international_fof": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (old ≤35% equity definition)" } }
+        ],
+        "listed_non_equity_etf": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 12,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (old ≤35% equity definition)" } }
+        ],
+        "gsec_listed": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } }
+        ]
+      }
+    },
+
+    {
+      "id": "FA2024-SMF",
+      "label": "Amended 'specified mutual fund' definition (from 1 Apr 2025)",
+      "effectiveFrom": "2025-04-01",
+      "effectiveTo": "2026-03-31",
+      "appliesBy": "transfer (redemption) date",
+      "equity112AExemption": 125000,
+      "sources": [
+        { "label": "Mirae Asset MF – Tax Reckoner FY 2026-27", "url": "https://www.miraeassetmf.co.in/docs/default-source/tax-reckoner/tax-reckoner-2026-27.pdf" },
+        { "label": "AMFI – Tax corner", "url": "https://amfiindia.com/investor-corner/knowledge-center/tax-corner.html" }
+      ],
+      "notes": [
+        "Sec 50AA 'specified mutual fund' redefined as a fund investing >65% in debt & money-market instruments (or a FoF with ≥65% in such funds).",
+        "Gold/silver funds, gold ETFs and international FoFs move out of the 'specified' category: 12.5% LTCG after 24 months (unlisted) or 12 months (listed)."
+      ],
+      "classes": {
+        "equity_oriented": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "eqST", "rate": 20, "section": "111A" },
+            "lt": { "kind": "eqLT", "rate": 12.5, "section": "112A", "exemptionPool": "112A" } }
+        ],
+        "debt_specified": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "50AA (deemed STCG, slab)" } }
+        ],
+        "commodity_fof": [
+          { "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } }
+        ],
+        "international_fof": [
+          { "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } }
+        ],
+        "listed_non_equity_etf": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } }
+        ],
+        "gsec_listed": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "112 (no indexation)" } }
+        ]
+      }
+    },
+
+    {
+      "id": "ITA2025",
+      "label": "Income-tax Act, 2025 (from 1 Apr 2026; Budget 2026 kept rates unchanged)",
+      "effectiveFrom": "2026-04-01",
+      "effectiveTo": null,
+      "appliesBy": "transfer (redemption) date",
+      "equity112AExemption": 125000,
+      "current": true,
+      "sources": [
+        { "label": "Business Standard – Budget 2026 keeps LTCG rates unchanged for FY27", "url": "https://www.business-standard.com/budget/news/budget-2026-ltcg-tax-rates-unchanged-for-fy27-fm-sitharaman-126020100424_1.html" },
+        { "label": "Tata MF – Post-Budget 2026 tax map for equity investors", "url": "https://www.tatamutualfund.com/blogs/post-budget-2026-new-tax-map-equity-investors" },
+        { "label": "Mirae Asset MF – Tax Reckoner FY 2026-27", "url": "https://www.miraeassetmf.co.in/docs/default-source/tax-reckoner/tax-reckoner-2026-27.pdf" },
+        { "label": "1961 → 2025 section mapping (secondary source)", "url": "https://www.taxheal.com/?p=116245" }
+      ],
+      "notes": [
+        "Rates and holding periods unchanged from FY 2025-26. 'Previous year/assessment year' replaced by a single 'tax year' (1 Apr – 31 Mar).",
+        "Section numbers under the 2025 Act (196 ≈ old 111A, 197 ≈ old 112, 198 ≈ old 112A) are from secondary sources — verify against the official Act text.",
+        "Projections redeeming in future years ASSUME the current law continues unchanged. It may not."
+      ],
+      "classes": {
+        "equity_oriented": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "eqST", "rate": 20, "section": "196 (old 111A)" },
+            "lt": { "kind": "eqLT", "rate": 12.5, "section": "198 (old 112A)", "exemptionPool": "112A" } }
+        ],
+        "debt_specified": [
+          { "acquiredTo": "2023-03-31", "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "197 (old 112)" } },
+          { "acquiredFrom": "2023-04-01", "alwaysShortTerm": true,
+            "st": { "kind": "slab", "rate": "slab", "section": "Specified MF (old 50AA) — slab" } }
+        ],
+        "commodity_fof": [
+          { "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "197 (old 112)" } }
+        ],
+        "international_fof": [
+          { "ltAfterMonths": 24,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "197 (old 112)" } }
+        ],
+        "listed_non_equity_etf": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "197 (old 112)" } }
+        ],
+        "gsec_listed": [
+          { "ltAfterMonths": 12,
+            "st": { "kind": "slab", "rate": "slab", "section": "Slab" },
+            "lt": { "kind": "otherLT", "rate": 12.5, "section": "197 (old 112)" } }
+        ]
+      }
+    }
+  ],
+
+  "costInflationIndex": {
+    "note": "Used only for pre-23-Jul-2024 indexed LTCG on non-equity assets. Base year 2001-02 = 100. FY keyed by starting year.",
+    "source": "https://www.incometaxindia.gov.in/charts%20%20tables/cost-inflation-index.htm",
+    "values": {
+      "2015": 254, "2016": 264, "2017": 272, "2018": 280, "2019": 289,
+      "2020": 301, "2021": 317, "2022": 331, "2023": 348, "2024": 363, "2025": 376
+    }
+  },
+
+  "statutoryLevies": {
+    "stampDutyMFPurchasePct": 0.005,
+    "stampDutyDeliveryBuyPct": 0.015,
+    "sttEquityMFRedemptionPct": 0.001,
+    "sttEquityDeliveryPct": 0.1,
+    "sttNonEquityETFPct": 0,
+    "gstOnServicesPct": 18,
+    "sebiTurnoverFeePct": 0.0001,
+    "sources": [
+      { "label": "Stamp duty on MF units (0.005%, from 1 Jul 2020) – AMFI", "url": "https://www.amfiindia.com/investor-corner/knowledge-center/tax-corner.html" },
+      { "label": "STT rates – Income Tax Dept / NSE", "url": "https://www.nseindia.com/static/products-services/equity-derivatives-securities-transaction-tax" }
+    ],
+    "lastVerified": "2026-11-15",
+    "note": "Exchange transaction charges and brokerage are broker/exchange specific and live in config/settings.json."
+  }
+}

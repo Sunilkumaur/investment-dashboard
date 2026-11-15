@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIP Redemption Planner — 5 to 10 Years</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14181f;--mut:#5d6675;--line:#e3e6eb;--acc:#1f5eff;--good:#0f8a5f;--bad:#c2410c;--soft:#eef2ff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1216;--card:#171b21;--ink:#e8ebf0;--mut:#9aa3b2;--line:#2a303a;--acc:#6f95ff;--good:#34c48b;--bad:#f08a5d;--soft:#1c2333}}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
+.wrap{max-width:1240px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0 0 4px}
+h2{font-size:15px;margin:0 0 12px}
+.sub{color:var(--mut);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+@media(max-width:900px){.g2,.g3{grid-template-columns:1fr}}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.kpi .l{color:var(--mut);font-size:12px}
+.kpi .v{font-size:20px;font-weight:650;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi.hero{background:var(--soft);border-color:var(--acc)}
+.kpi.hero .v{color:var(--acc);font-size:24px}
+.neg{color:var(--bad)}.pos{color:var(--good)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--mut);font-weight:600;font-size:12px}
+tr.tot td{font-weight:650;border-top:2px solid var(--line)}
+tr.sel td{background:var(--soft)}
+.scroll{overflow-x:auto}
+input[type=number],select{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);font:inherit;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%}
+label{display:block;font-size:12px;color:var(--mut);margin-bottom:3px}
+.field{margin-bottom:10px}
+.row{display:flex;gap:10px}.row>*{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink);padding:7px 14px;font:inherit;cursor:pointer}
+.seg button.on{background:var(--acc);color:#fff}
+.fundtbl input{min-width:70px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.note{color:var(--mut);font-size:12px}
+.big{font-size:16px;font-weight:600}
+.chartbox{position:relative;height:280px}
+details summary{cursor:pointer;font-weight:600}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;background:var(--soft);font-size:12px;color:var(--acc)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>SIP Redemption Planner — what you actually take home</h1>
+<p class="sub">Monthly SIP into 3 mutual funds plus GOLDBEES. Pick an exit year and the page works out the amount invested, the growth, the capital-gains tax, the charges, and the <b>net amount in hand</b>. Every value below can be edited.</p>
+
+<div class="card">
+  <div class="row" style="align-items:flex-end;flex-wrap:wrap">
+    <div style="flex:2;min-width:240px">
+      <label>Redeem after <b id="yrsLbl">7</b> years</label>
+      <input type="range" id="years" min="1" max="15" value="7">
+    </div>
+    <div style="min-width:280px">
+      <label>Return scenario</label>
+      <div class="seg" id="scen">
+        <button data-s="c">Conservative</button><button data-s="b" class="on">Base</button><button data-s="o">Optimistic</button><button data-s="x">Custom</button>
+      </div>
+    </div>
+    <div style="min-width:140px"><label>Annual SIP step-up %</label><input type="number" id="stepup" value="0" step="1" min="0"></div>
+    <div style="min-width:140px"><label>Inflation % (for real value)</label><input type="number" id="infl" value="5" step="0.5"></div>
+  </div>
+</div>
+
+<div class="kpis" id="kpis"></div>
+
+<div class="grid g2">
+  <div class="card"><h2>Invested vs portfolio value (before tax)</h2><div class="chartbox"><canvas id="growth"></canvas></div></div>
+  <div class="card"><h2>Where the final value goes</h2><div class="chartbox"><canvas id="split"></canvas></div></div>
+</div>
+
+<div class="card">
+  <h2>Exit year comparison — net in hand if you redeem at the end of year 5 to 10</h2>
+  <div class="scroll"><table id="exitTbl"></table></div>
+  <p class="note">The highlighted row is the year picked on the slider. "Net CAGR" is the after-tax XIRR on your monthly cash flows, which is the return you actually earned.</p>
+</div>
+
+<div class="card">
+  <h2>Funds, allocation &amp; assumptions</h2>
+  <div class="scroll fundtbl"><table id="fundTbl"></table></div>
+  <p class="note">The returns are NAV-based CAGR assumptions, so the fund's expense ratio is already taken out (the TER column is for reference only). Exit load tiers: a % charged if a unit is redeemed within N days of purchase. Exit loads are based on Nov 2026 data; check the latest factsheet for each fund.</p>
+</div>
+
+<div class="card">
+  <h2>Per-fund result at the chosen exit year</h2>
+  <div class="scroll"><table id="resTbl"></table></div>
+</div>
+
+<div class="grid g3">
+  <div class="card">
+    <h2>Tax settings</h2>
+    <div class="field"><label>Equity LTCG rate % (held &gt; 12 months)</label><input type="number" id="eqLT" value="12.5" step="0.5"></div>
+    <div class="field"><label>Equity LTCG exemption per financial year (₹)</label><input type="number" id="eqEx" value="125000" step="5000"></div>
+    <div class="field"><label>Equity STCG rate % (held ≤ 12 months)</label><input type="number" id="eqST" value="20" step="0.5"></div>
+    <div class="field"><label>Gold ETF LTCG rate % (held &gt; 12 months, no exemption)</label><input type="number" id="gLT" value="12.5" step="0.5"></div>
+    <div class="field"><label>Gold ETF STCG = your income-tax slab %</label><input type="number" id="gST" value="20" step="1"></div>
+    <div class="field"><label>Health &amp; education cess % (on tax)</label><input type="number" id="cess" value="4" step="1"></div>
+    <div class="field"><label>Spread redemption over N financial years</label><input type="number" id="nFY" value="1" min="1" max="5" step="1"></div>
+    <p class="note">Splitting the exit across 2 or more financial years (e.g. sell part in March, the rest in April) gives you the ₹1.25L equity exemption more than once. Within each category, losses are netted against gains.</p>
+  </div>
+  <div class="card">
+    <h2>Charges</h2>
+    <div class="field"><label>MF stamp duty on purchase %</label><input type="number" id="mfStamp" value="0.005" step="0.001"></div>
+    <div class="field"><label>GOLDBEES buy-side cost % (stamp duty + exchange + GST)</label><input type="number" id="gBuy" value="0.02" step="0.005"></div>
+    <div class="field"><label>GOLDBEES sell-side cost % (exchange + SEBI + GST)</label><input type="number" id="gSell" value="0.005" step="0.001"></div>
+    <div class="field"><label>Brokerage per order (₹) — Zerodha delivery = 0</label><input type="number" id="brok" value="0" step="1"></div>
+    <div class="field"><label>GOLDBEES buy orders per month</label><input type="number" id="gOrders" value="4" step="1" min="0"></div>
+    <div class="field"><label>DP charge per sell day (₹, incl. GST)</label><input type="number" id="dp" value="15.93" step="0.5"></div>
+    <p class="note">Mutual funds bought through Direct plans have no brokerage and no DP charge. GOLDBEES pays no STT on non-equity ETFs.</p>
+  </div>
+  <div class="card">
+    <h2>Existing holdings (optional)</h2>
+    <div class="field"><label>Current GOLDBEES market value (₹)</label><input type="number" id="exV" value="0" step="1000"></div>
+    <div class="field"><label>Its purchase cost (₹)</label><input type="number" id="exC" value="0" step="1000"></div>
+    <div class="field"><label>Current MF holdings value (₹, equity)</label><input type="number" id="exMV" value="0" step="1000"></div>
+    <div class="field"><label>Its purchase cost (₹)</label><input type="number" id="exMC" value="0" step="1000"></div>
+    <p class="note">Existing holdings grow at the gold rate and the blended equity rate. They're taxed as long-term when the horizon is over 1 year.</p>
+    <div class="field" style="margin-top:14px"><label>Target gold share of total SIP</label><div class="big" id="goldShare"></div><div class="note">Your planning cap is 10–15%.</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <details>
+    <summary>How the numbers are calculated</summary>
+    <ul class="note" style="margin-top:8px">
+      <li>Each monthly SIP instalment is a separate lot. A lot's value = amount × (1 + CAGR)<sup>(months held / 12)</sup>.</li>
+      <li>Lots held for 12 months or less at exit are short-term; older lots are long-term (FIFO, the same as your GOLDBEES tracking).</li>
+      <li>Exit load is charged on lots still inside the fund's exit-load window. It reduces both the proceeds and the taxable gain.</li>
+      <li>Equity LTCG tax = rate × max(0, LTCG − exemption × N financial years). Gold ETF LTCG has no exemption. Cess is added on top. Surcharge is ignored (it only applies above ₹50L income).</li>
+      <li>Tax rules are as in force since 23 Jul 2024 (Finance Act 2024). They can change before you redeem.</li>
+      <li>Returns are assumptions, not forecasts. Markets can deliver less, including losses.</li>
+    </ul>
+  </details>
+</div>
+<p class="note">For planning only, not investment advice. Fund data from Value Research, Groww, ET Money, INDmoney and Economic Times, 7–13 Nov 2026.</p>
+</div>
+
+<script>
+const F=[
+ {name:'UTI Nifty 50 Index Fund',type:'equity',sip:4000,ret:{c:8,b:11,o:13},x:11,ter:0.18,l1:0,d1:0,l2:0,d2:0,color:'#2563eb'},
+ {name:'Parag Parikh Flexi Cap',type:'equity',sip:3000,ret:{c:9,b:12,o:14},x:12,ter:0.68,l1:2,d1:365,l2:1,d2:730,color:'#0f8a5f'},
+ {name:'Motilal Oswal Nifty Midcap 150 Index',type:'equity',sip:2000,ret:{c:9,b:13,o:16},x:13,ter:0.39,l1:1,d1:365,l2:0,d2:0,color:'#9333ea'},
+ {name:'GOLDBEES (Gold ETF)',type:'gold',sip:3000,ret:{c:6,b:8,o:11},x:8,ter:0.79,l1:0,d1:0,l2:0,d2:0,color:'#d97706'}
+];
+let scen='b';
+const $=id=>document.getElementById(id);
+const num=id=>parseFloat($(id).value)||0;
+const inr=v=>{const s=v<0?'-':'';v=Math.abs(Math.round(v));return s+'₹'+v.toLocaleString('en-IN')};
+const lakh=v=>(v/1e5).toFixed(2)+' L';
+const rate=f=>scen==='x'?f.x:f.ret[scen];
+
+function buildFundTable(){
+ let h='<tr><th>Fund</th><th>Type</th><th>Monthly SIP ₹</th><th>Share</th><th>CAGR % (current scenario)</th><th>TER %</th><th>Exit load 1 %</th><th>within days</th><th>Exit load 2 %</th><th>within days</th></tr>';
+ F.forEach((f,i)=>{h+=`<tr><td><span class="dot" style="background:${f.color}"></span>${f.name}</td><td>${f.type==='equity'?'Equity':'Gold ETF'}</td>
+ <td><input type="number" data-i="${i}" data-k="sip" value="${f.sip}" step="500"></td><td id="sh${i}"></td>
+ <td><input type="number" data-i="${i}" data-k="r" value="${rate(f)}" step="0.5"></td>
+ <td><input type="number" data-i="${i}" data-k="ter" value="${f.ter}" step="0.01"></td>
+ <td><input type="number" data-i="${i}" data-k="l1" value="${f.l1}" step="0.25"></td><td><input type="number" data-i="${i}" data-k="d1" value="${f.d1}" step="15"></td>
+ <td><input type="number" data-i="${i}" data-k="l2" value="${f.l2}" step="0.25"></td><td><input type="number" data-i="${i}" data-k="d2" value="${f.d2}" step="15"></td></tr>`});
+ h+='<tr class="tot"><td>Total</td><td></td><td id="sipTot"></td><td>100%</td><td colspan="6"></td></tr>';
+ $('fundTbl').innerHTML=h;
+ $('fundTbl').querySelectorAll('input').forEach(el=>el.addEventListener('input',e=>{
+   const f=F[+e.target.dataset.i],k=e.target.dataset.k,v=parseFloat(e.target.value)||0;
+   if(k==='r'){ if(scen!=='x'){F.forEach(g=>g.x=rate(g));setScen('x',false)} f.x=v; }
+   else f[k]=v;
+   calc();
+ }));
+}
+function setScen(s,rebuild=true){scen=s;document.querySelectorAll('#scen button').forEach(b=>b.classList.toggle('on',b.dataset.s===s));if(rebuild)buildFundTable();}
+
+function loadPct(f,days){ if(f.d1>0&&days<=f.d1)return f.l1; if(f.d2>0&&days<=f.d2)return f.l2; return 0; }
+
+function simulate(years){
+ const M=Math.round(years*12),step=num('stepup')/100;
+ const mfStamp=num('mfStamp')/100,gBuy=num('gBuy')/100,gSell=num('gSell')/100,brok=num('brok'),gOrders=num('gOrders');
+ const out=F.map(f=>({f,inv:0,val:0,exit:0,buyCost:0,lt:0,st:0}));
+ const flows=[];
+ for(let m=0;m<M;m++){
+  const mult=Math.pow(1+step,Math.floor(m/12));let cash=0;
+  out.forEach(o=>{const f=o.f;const amt=f.sip*mult;if(amt<=0)return;
+   const r=rate(f)/100;let cost=f.type==='gold'?amt*gBuy+brok*gOrders:amt*mfStamp;
+   const units=amt-cost;const held=M-m;const val=units*Math.pow(1+r,held/12);
+   const el=val*loadPct(f,held*30.44)/100;const gain=val-el-amt;
+   o.inv+=amt;o.val+=val;o.exit+=el;o.buyCost+=cost;cash+=amt;
+   if(held>12)o.lt+=gain;else o.st+=gain;});
+  flows.push(-cash);
+ }
+ // existing holdings
+ const exV=num('exV'),exC=num('exC'),exMV=num('exMV'),exMC=num('exMC');
+ const eqF=out.filter(o=>o.f.type==='equity');const eqSip=eqF.reduce((a,o)=>a+o.f.sip,0)||1;
+ const eqR=eqF.reduce((a,o)=>a+rate(o.f)*o.f.sip,0)/eqSip/100;
+ const ex={gV:exV*Math.pow(1+rate(F[3])/100,years),gC:exC,mV:exMV*Math.pow(1+eqR,years),mC:exMC};
+ if(flows.length)flows[0]-=(exV+exMV);
+ // tax
+ const nFY=Math.max(1,Math.round(num('nFY')));const cess=1+num('cess')/100;
+ let eqLT=0,eqST=0,gLT=0,gST=0;
+ out.forEach(o=>{if(o.f.type==='equity'){eqLT+=o.lt;eqST+=o.st}else{gLT+=o.lt;gST+=o.st}});
+ const exLong=years>1;
+ if(exMV>0){const g=ex.mV-ex.mC;exLong?eqLT+=g:eqST+=g}
+ if(exV>0){const g=ex.gV-ex.gC;exLong?gLT+=g:gST+=g}
+ // set-off: ST loss vs LT gain within category; LT loss only vs LT
+ function net(lt,st){if(st<0){lt+=st;st=0}if(lt<0)lt=0;return[lt,st]}
+ [eqLT,eqST]=net(eqLT,eqST);[gLT,gST]=net(gLT,gST);
+ const eqExUsed=Math.min(eqLT,num('eqEx')*nFY);
+ const tEqLT=(eqLT-eqExUsed)*num('eqLT')/100*cess,tEqST=eqST*num('eqST')/100*cess;
+ const tgLT=gLT*num('gLT')/100*cess,tgST=gST*num('gST')/100*cess;
+ const tax=tEqLT+tEqST+tgLT+tgST;
+ // per-fund tax allocation (proportional to positive gains in its category) for display
+ const goldVal=out[3].val+ex.gV;
+ const sellCost=goldVal>0?goldVal*gSell+num('dp')*nFY+brok*nFY:0;
+ const inv=out.reduce((a,o)=>a+o.inv,0)+exC+exMC;
+ const gross=out.reduce((a,o)=>a+o.val,0)+ex.gV+ex.mV;
+ const exitL=out.reduce((a,o)=>a+o.exit,0);
+ const buyC=out.reduce((a,o)=>a+o.buyCost,0);
+ const netAmt=gross-exitL-sellCost-tax;
+ flows.push(netAmt);
+ return{years,M,out,ex,inv,gross,exitL,buyC,sellCost,tax,tEqLT,tEqST,tgLT,tgST,eqLT,eqST,gLT,gST,eqExUsed,netAmt,flows,xirr:irr(flows)};
+}
+function irr(fl){ // monthly flows, returns annual
+ const f=r=>fl.reduce((a,c,i)=>a+c/Math.pow(1+r,i),0);
+ let lo=-0.05,hi=0.1;if(f(lo)*f(hi)>0)return NaN;
+ for(let i=0;i<100;i++){const mid=(lo+hi)/2;f(lo)*f(mid)<=0?hi=mid:lo=mid}
+ return Math.pow(1+(lo+hi)/2,12)-1;
+}
+
+let gChart,sChart;
+function calc(){
+ const yrs=+$('years').value;$('yrsLbl').textContent=yrs;
+ const tot=F.reduce((a,f)=>a+f.sip,0);
+ F.forEach((f,i)=>{const e=$('sh'+i);if(e)e.textContent=tot?(f.sip/tot*100).toFixed(1)+'%':'-'});
+ $('sipTot').textContent=inr(tot);
+ const gs=tot?F[3].sip/tot*100:0;$('goldShare').innerHTML=`<span class="${gs>15?'neg':'pos'}">${gs.toFixed(1)}%</span>`;
+ // sync rate inputs when not custom
+ document.querySelectorAll('#fundTbl input[data-k=r]').forEach(el=>{if(document.activeElement!==el)el.value=rate(F[+el.dataset.i])});
+ const R=simulate(yrs);
+ const realNet=R.netAmt/Math.pow(1+num('infl')/100,yrs);
+ const charges=R.exitL+R.sellCost+R.buyC;
+ const gain=R.gross-R.inv;
+ $('kpis').innerHTML=[
+  ['Total invested',inr(R.inv),''],
+  ['Portfolio value (gross)',inr(R.gross),''],
+  ['Growth',inr(gain),'pos',`${(gain/R.inv*100).toFixed(1)}% on invested`],
+  ['Tax payable',inr(R.tax),'neg',`${(R.tax/Math.max(gain,1)*100).toFixed(1)}% of gains`],
+  ['Charges (buy + exit + sell)',inr(charges),'neg',''],
+  ['Net amount in hand',inr(R.netAmt),'hero',`after ${yrs} yrs`],
+  ['Net CAGR (XIRR, post-tax)',isNaN(R.xirr)?'–':(R.xirr*100).toFixed(2)+'%',''],
+  ['Net in today\'s money',inr(realNet),'',`at ${num('infl')}% inflation`]
+ ].map(k=>`<div class="kpi ${k[2]==='hero'?'hero':''}"><div class="l">${k[0]}</div><div class="v ${k[2]==='pos'||k[2]==='neg'?k[2]:''}">${k[1]}</div>${k[3]?`<div class="note">${k[3]}</div>`:''}</div>`).join('');
+
+ // exit table 5..10
+ let h='<tr><th>Exit at end of</th><th>Invested</th><th>Gross value</th><th>Gain</th><th>Equity LTCG</th><th>Equity STCG</th><th>Gold gains</th><th>Tax + cess</th><th>Charges</th><th>Net in hand</th><th>Net CAGR</th><th>Net × invested</th></tr>';
+ const series=[];
+ for(let y=1;y<=15;y++){const r=simulate(y);series.push(r);}
+ for(let y=5;y<=10;y++){const r=series[y-1];
+  h+=`<tr class="${y===yrs?'sel':''}"><td>Year ${y}</td><td>${inr(r.inv)}</td><td>${inr(r.gross)}</td><td class="pos">${inr(r.gross-r.inv)}</td><td>${inr(r.eqLT)}</td><td>${inr(r.eqST)}</td><td>${inr(r.gLT+r.gST)}</td><td class="neg">${inr(r.tax)}</td><td class="neg">${inr(r.exitL+r.sellCost+r.buyC)}</td><td><b>${inr(r.netAmt)}</b></td><td>${isNaN(r.xirr)?'–':(r.xirr*100).toFixed(2)+'%'}</td><td>${(r.netAmt/r.inv).toFixed(2)}×</td></tr>`;}
+ $('exitTbl').innerHTML=h;
+
+ // per-fund
+ const cess=1+num('cess')/100;
+ let rh='<tr><th>Fund</th><th>Invested</th><th>Gross value</th><th>Gain</th><th>Long-term gain</th><th>Short-term gain</th><th>Exit load</th><th>Est. tax*</th><th>Net</th></tr>';
+ const eqPos=R.out.filter(o=>o.f.type==='equity').reduce((a,o)=>a+Math.max(0,o.lt),0)||1;
+ const eqStPos=R.out.filter(o=>o.f.type==='equity').reduce((a,o)=>a+Math.max(0,o.st),0)||1;
+ R.out.forEach(o=>{let t;
+  if(o.f.type==='equity'){t=R.tEqLT*Math.max(0,o.lt)/eqPos+R.tEqST*Math.max(0,o.st)/eqStPos}
+  else{t=R.tgLT+R.tgST}
+  const sc=o.f.type==='gold'?R.sellCost:0;
+  rh+=`<tr><td><span class="dot" style="background:${o.f.color}"></span>${o.f.name}</td><td>${inr(o.inv)}</td><td>${inr(o.val)}</td><td class="pos">${inr(o.val-o.inv)}</td><td>${inr(o.lt)}</td><td>${inr(o.st)}</td><td>${inr(o.exit)}</td><td class="neg">${inr(t)}</td><td><b>${inr(o.val-o.exit-sc-t)}</b></td></tr>`});
+ if(R.ex.gV||R.ex.mV)rh+=`<tr><td>Existing holdings</td><td>${inr(R.ex.gC+R.ex.mC)}</td><td>${inr(R.ex.gV+R.ex.mV)}</td><td class="pos">${inr(R.ex.gV+R.ex.mV-R.ex.gC-R.ex.mC)}</td><td colspan="5" class="note" style="text-align:left">taxed with its category (included in totals)</td></tr>`;
+ rh+=`<tr class="tot"><td>Total</td><td>${inr(R.inv)}</td><td>${inr(R.gross)}</td><td>${inr(R.gross-R.inv)}</td><td>${inr(R.eqLT+R.gLT)}</td><td>${inr(R.eqST+R.gST)}</td><td>${inr(R.exitL)}</td><td>${inr(R.tax)}</td><td>${inr(R.netAmt)}</td></tr>`;
+ rh+=`<tr><td colspan="9" class="note" style="text-align:left">*Equity tax is shared across funds in proportion to their gains, after the ₹${(R.eqExUsed).toLocaleString('en-IN',{maximumFractionDigits:0})} exemption used. GOLDBEES net is also after sell-side and DP charges. Totals are after netting losses.</td></tr>`;
+ $('resTbl').innerHTML=rh;
+
+ // charts
+ const labels=series.map(s=>'Y'+s.years);
+ const css=getComputedStyle(document.body);const ink=css.getPropertyValue('--mut').trim();const grid=css.getPropertyValue('--line').trim();
+ const gd={labels,datasets:[
+  {label:'Invested',data:series.map(s=>Math.round(s.inv)),borderColor:'#94a3b8',backgroundColor:'rgba(148,163,184,.15)',fill:true,tension:.25,pointRadius:2},
+  {label:'Gross value',data:series.map(s=>Math.round(s.gross)),borderColor:'#1f5eff',tension:.25,pointRadius:2},
+  {label:'Net in hand',data:series.map(s=>Math.round(s.netAmt)),borderColor:'#0f8a5f',borderDash:[5,4],tension:.25,pointRadius:2}]};
+ const opt={responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:ink}},tooltip:{callbacks:{label:c=>c.dataset.label+': '+inr(c.parsed.y)}}},
+  scales:{x:{ticks:{color:ink},grid:{color:grid}},y:{ticks:{color:ink,callback:v=>'₹'+(v/1e5).toFixed(0)+'L'},grid:{color:grid}}}};
+ if(typeof Chart!=='undefined'){
+  if(gChart){gChart.data=gd;gChart.update('none')}else gChart=new Chart($('growth'),{type:'line',data:gd,options:opt});
+  const sd={labels:['Your invested capital','Net gain kept','Tax + cess','Charges'],datasets:[{data:[Math.round(R.inv),Math.max(0,Math.round(R.netAmt-R.inv)),Math.round(R.tax),Math.round(charges)],backgroundColor:['#94a3b8','#0f8a5f','#c2410c','#d97706'],borderWidth:0}]};
+  const so={responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{color:ink}},tooltip:{callbacks:{label:c=>c.label+': '+inr(c.parsed)}}}};
+  if(sChart){sChart.data=sd;sChart.update('none')}else sChart=new Chart($('split'),{type:'doughnut',data:sd,options:so});
+ }
+}
+document.querySelectorAll('#scen button').forEach(b=>b.addEventListener('click',()=>{if(b.dataset.s==='x')F.forEach(f=>f.x=rate(f));setScen(b.dataset.s);calc()}));
+document.querySelectorAll('input[id]').forEach(el=>el.addEventListener('input',calc));
+buildFundTable();calc();
+</script>
+</body>
+</html>

@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en-IN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Investment Dashboard</title>
+<meta name="description" content="Indian mutual fund research, ₹9,000 allocation simulator, long-term projection and after-tax, after-charges redemption calculator.">
+<link rel="stylesheet" href="css/styles.css">
+<script>try{var t=localStorage.getItem('siird.theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="in">
+    <div class="titlerow">
+      <h1>Smart Indian Investment Research &amp; Wealth Dashboard</h1>
+      <span id="dataChip" class="status-chip">Loading data…</span>
+      <button class="btn small" id="themeBtn" type="button" aria-label="Toggle dark or light theme">◐ Theme</button>
+    </div>
+    <nav class="navlinks" aria-label="Sections">
+      <a href="#overview">A · Overview</a><a href="#research">B · Research</a><a href="#allocation">C · Allocation</a>
+      <a href="#projection">D · Projection</a><a href="#taxes">E · Tax &amp; charges</a><a href="#redeem">F · Redemption</a>
+      <a href="#compare">G · Compare</a><a href="#updates">H · Updates</a><a href="#portfolio">I · My portfolio</a>
+      <a href="#assumptions">Assumptions</a><a href="#sources">Sources</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="banner warn" role="note">
+    <b>Decision-support tool, not investment advice.</b> The builder of this tool is not a SEBI-registered investment adviser. Projections use <b>your assumptions</b>, not forecasts; past returns don't guarantee future returns. Tax figures are estimates under the rules in <code>config/tax-rules.json</code>. Read the scheme documents and consider a SEBI-registered adviser and a tax professional before investing.
+  </div>
+  <div id="fatal"></div>
+  <div id="inputErrors"></div>
+
+  <!-- Global controls -->
+  <section class="card controls" aria-label="Main inputs">
+    <div class="row">
+      <div class="field"><label for="capital">Initial investment (₹)</label><input type="number" id="capital" min="0" step="500" class="assume"></div>
+      <div class="field"><label for="sip">Monthly SIP (₹, optional)</label><input type="number" id="sip" min="0" step="100" class="assume"></div>
+      <div class="field"><label for="stepUp">SIP annual step-up %</label><input type="number" id="stepUp" min="0" max="50" step="1" class="assume"></div>
+      <div class="field"><label for="startDate">Investment date</label><input type="date" id="startDate" class="assume"></div>
+      <div class="field" style="flex:2 1 280px"><label>Investment horizon</label>
+        <div class="seg" id="horizonSeg" role="group" aria-label="Horizon"><button data-h="5" type="button">5 yrs</button><button data-h="7" type="button">7 yrs</button><button data-h="10" type="button">10 yrs</button><button data-h="custom" type="button">Custom</button></div>
+      </div>
+      <div class="field" id="customYearsWrap"><label for="customYears">Custom years</label><input type="number" id="customYears" min="0.25" max="40" step="0.25" class="assume"></div>
+      <div class="field"><label for="endDate">Redemption date</label><input type="date" id="endDate" class="assume"></div>
+    </div>
+    <div class="row">
+      <div class="field" style="flex:2 1 300px"><label>Return scenario</label>
+        <div class="seg" id="scenSeg" role="group" aria-label="Scenario"><button data-s="c" type="button">Conservative</button><button data-s="m" type="button">Moderate</button><button data-s="o" type="button">Optimistic</button></div>
+      </div>
+      <div class="field"><label for="inflation">Inflation % (for real value)</label><input type="number" id="inflation" step="0.5" class="assume"></div>
+      <div class="field"><label for="profile">Risk profile for model allocation</label><select id="profile"></select></div>
+      <div class="field"><label for="slabTop">Your income-tax slab % (for slab-taxed gains)</label><input type="number" id="slabTop" min="0" max="42.74" step="1" class="assume"></div>
+    </div>
+    <div class="legend"><span><span class="sw sourced"></span>Sourced / computed data</span><span><span class="sw assume"></span>Your assumption (editable)</span><span id="scenNote" class="note"></span></div>
+  </section>
+
+  <!-- A -->
+  <section id="overview" class="sec">
+    <h2>A · Portfolio overview</h2>
+    <p class="lede" id="ovLede"></p>
+    <div class="kpis" id="kpis"></div>
+    <h3>Your tracked portfolio (actual holdings)</h3>
+    <div class="kpis" id="kpisActual"></div>
+  </section>
+
+  <!-- B -->
+  <section id="research" class="sec">
+    <h2>B · Fund research &amp; model allocation</h2>
+    <p class="lede">Returns, volatility, Sharpe, Sortino, drawdowns and correction behaviour are computed live from AMFI NAV history. Expense ratio, AUM, managers, exit load and risk-o-meter come from a dated factsheet snapshot. Funds are scored on several factors — not on past return alone.</p>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div><h3 style="margin-top:0">Model allocation — <span id="modelTitle"></span></h3><div class="note" id="modelSummary"></div></div>
+        <div class="btns" style="margin:0"><button class="btn primary" id="applyModel" type="button">Use this allocation in the simulator</button></div>
+      </div>
+      <div class="scroll"><table id="modelTbl"></table></div>
+      <div id="modelNotes"></div>
+      <details style="margin-top:10px"><summary>Why other funds were not selected</summary><div class="scroll"><table id="rejectTbl"></table></div></details>
+      <details style="margin-top:6px"><summary>Compare all three risk profiles</summary><div id="profileCompare"></div></details>
+    </div>
+    <div class="card">
+      <div class="row">
+        <div class="field" style="flex:2 1 240px"><label for="fundFilter">Search shortlist</label><input type="search" id="fundFilter" placeholder="Fund, AMC or category"></div>
+        <div class="field"><label for="catFilter">Category</label><select id="catFilter"></select></div>
+      </div>
+      <div class="scroll" style="max-height:560px"><table id="shortTbl"></table></div>
+      <p class="note" id="shortNote"></p>
+      <details><summary>Scoring weights (editable)</summary><div class="row" id="weights"></div><p class="note" id="weightsNote"></p></details>
+    </div>
+  </section>
+
+  <!-- C -->
+  <section id="allocation" class="sec">
+    <h2>C · Allocation simulator</h2>
+    <p class="lede">Choose funds, split your money, and override any assumption. Percentages and rupee amounts stay in sync; monthly SIP is split in the same proportions.</p>
+    <div class="grid g-alloc">
+      <div class="card">
+        <div id="allocMsg"></div>
+        <div class="scroll"><table id="allocTbl"></table></div>
+        <div class="btns">
+          <button class="btn" id="addRow" type="button">+ Add fund</button>
+          <button class="btn" id="addAmfi" type="button">+ Add any AMFI scheme</button>
+          <button class="btn" id="normalise" type="button">Scale to 100%</button>
+          <button class="btn" id="resetModel" type="button">Reset to model allocation</button>
+        </div>
+        <div id="amfiSearch" class="hidden" style="margin-top:10px">
+          <div class="row">
+            <div class="field" style="flex:3 1 260px"><label for="amfiQ">Search AMFI schemes (Direct Growth recommended)</label><input type="search" id="amfiQ" placeholder="e.g. Nifty 50 index direct growth"></div>
+            <div class="field"><label for="amfiCat">Category (sets tax treatment)</label><select id="amfiCat"></select></div>
+            <div class="field"><label for="amfiTer">Expense ratio % (from factsheet)</label><input type="number" id="amfiTer" step="0.01" min="0" class="assume"></div>
+          </div>
+          <div id="amfiRes" class="searchres"></div>
+          <p class="note">Custom schemes use NAV history from AMFI/mfapi.in; category, expense ratio and exit load are entered by you and marked as user-entered.</p>
+        </div>
+      </div>
+      <div class="card"><h3 style="margin-top:0">Allocation</h3><div class="chartbox short"><canvas id="allocChart" aria-label="Allocation doughnut chart"></canvas></div><div id="allocSummary" class="note"></div></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Saved strategies</h3>
+      <div class="row"><div class="field" style="flex:3 1 220px"><label for="stratName">Strategy name</label><input type="text" id="stratName" placeholder="e.g. Balanced 10-yr"></div><div class="field" style="flex:0 0 auto"><button class="btn primary" id="saveStrat" type="button">Save current</button></div></div>
+      <div class="scroll"><table id="stratTbl"></table></div>
+      <p class="note">Saved in this browser only.</p>
+    </div>
+  </section>
+
+  <!-- D -->
+  <section id="projection" class="sec">
+    <h2>D · Long-term wealth projection</h2>
+    <p class="lede" id="projLede"></p>
+    <div class="grid g2">
+      <div class="card"><h3 style="margin-top:0">Year by year — invested, gross value and net in hand</h3><div class="chartbox"><canvas id="growthChart"></canvas></div></div>
+      <div class="card"><h3 style="margin-top:0">Net amount received by horizon and scenario</h3><div class="chartbox"><canvas id="scenChart"></canvas></div></div>
+    </div>
+    <div class="card"><div class="scroll"><table id="scenTbl"></table></div>
+      <p class="note">"Assumed return" is your pre-expense assumption; "Historical CAGR" is the weighted trailing 5-yr NAV CAGR of your selected funds (context only, not used in the projection); "Net XIRR" is the realised annual return on your actual cash flows after every cost and tax.</p></div>
+  </section>
+
+  <!-- E -->
+  <section id="taxes" class="sec">
+    <h2>E · Tax &amp; charges analysis</h2>
+    <p class="lede" id="taxLede"></p>
+    <div class="grid g3">
+      <div class="card scen" id="scenA"></div>
+      <div class="card scen" id="scenB"></div>
+      <div class="card"><h3 style="margin-top:0">Where the money goes</h3><div class="chartbox short"><canvas id="lossChart"></canvas></div></div>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Cost comparison — money lost to each item</h3><div class="scroll"><table id="lossTbl"></table></div><p class="note" id="lossNote"></p></div>
+    <div class="card"><h3 style="margin-top:0">Capital-gains tax computation</h3><div class="scroll"><table id="taxTbl"></table></div><div id="taxNotes"></div></div>
+    <div class="card"><h3 style="margin-top:0">Per-fund result</h3><div class="scroll"><table id="fundResTbl"></table></div>
+      <details style="margin-top:8px"><summary>Every lot (each SIP instalment / lump sum) with its own holding period and tax</summary><div class="scroll" style="max-height:480px"><table id="lotTbl"></table></div></details></div>
+  </section>
+
+  <!-- F -->
+  <section id="redeem" class="sec">
+    <h2>F · Net redemption calculator</h2>
+    <p class="lede">Pick one investment and a redemption date. If both dates are in the past and NAV history covers them, the <b>actual NAV</b> is used; otherwise your assumed return is used.</p>
+    <div class="card">
+      <div class="row">
+        <div class="field" style="flex:3 1 260px"><label for="rdFund">Fund</label><select id="rdFund"></select></div>
+        <div class="field"><label for="rdAmt">Lump sum (₹)</label><input type="number" id="rdAmt" min="0" step="500" class="assume"></div>
+        <div class="field"><label for="rdSip">Monthly SIP (₹)</label><input type="number" id="rdSip" min="0" step="100" class="assume"></div>
+        <div class="field"><label for="rdStart">Investment date</label><input type="date" id="rdStart" class="assume"></div>
+        <div class="field"><label for="rdEnd">Redemption date</label><input type="date" id="rdEnd" class="assume"></div>
+        <div class="field"><label for="rdRet">Assumed return % (pre-expense)</label><input type="number" id="rdRet" step="0.5" class="assume"></div>
+      </div>
+      <div id="rdOut"></div>
+    </div>
+  </section>
+
+  <!-- G -->
+  <section id="compare" class="sec">
+    <h2>G · Investment comparison</h2>
+    <div class="card">
+      <h3 style="margin-top:0">Portfolios side by side</h3>
+      <p class="note">Compares the current allocation, the three model profiles and any saved strategies at the horizon and scenario chosen above.</p>
+      <div class="scroll"><table id="cmpTbl"></table></div>
+      <div class="chartbox short" style="margin-top:10px"><canvas id="cmpChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Funds side by side</h3>
+      <div class="row" id="fcSel"></div>
+      <div class="scroll"><table id="fcTbl"></table></div>
+      <div class="chartbox" style="margin-top:10px"><canvas id="fcChart"></canvas></div>
+      <p class="note">Chart: growth of ₹10,000 over the common NAV history of the selected funds.</p>
+    </div>
+  </section>
+
+  <!-- H -->
+  <section id="updates" class="sec">
+    <h2>H · Market &amp; fund updates</h2>
+    <div class="grid g2">
+      <div class="card"><h3 style="margin-top:0">Data freshness</h3><div id="freshBox"></div></div>
+      <div class="card"><h3 style="margin-top:0">Material changes &amp; alerts</h3><div id="changeBox"></div></div>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Latest NAVs for your selected funds</h3><div class="scroll"><table id="navTbl"></table></div></div>
+    <div class="card"><details><summary>Data-service log</summary><div id="logBox" class="note"></div></details></div>
+  </section>
+
+  <!-- I -->
+  <section id="portfolio" class="sec">
+    <h2>I · My portfolio tracker</h2>
+    <p class="lede">Record your real purchases, SIP instalments and redemptions. Valued at the latest available NAV; lots are matched first-in-first-out. Stored only in this browser — nothing is sent anywhere.</p>
+    <div class="card">
+      <div class="row">
+        <div class="field" style="flex:0 1 110px"><label for="txType">Type</label><select id="txType"><option value="BUY">Buy / SIP</option><option value="SELL">Redeem</option></select></div>
+        <div class="field"><label for="txDate">Date</label><input type="date" id="txDate"></div>
+        <div class="field" style="flex:3 1 260px"><label for="txFund">Fund</label><select id="txFund"></select></div>
+        <div class="field" id="txNameWrap" style="flex:2 1 200px"><label for="txName">Fund name (if not listed)</label><input type="text" id="txName"></div>
+        <div class="field"><label for="txClass">Tax class</label><select id="txClass"></select></div>
+      </div>
+      <div class="row">
+        <div class="field"><label for="txAmt">Amount (₹)</label><input type="number" id="txAmt" min="0" step="0.01"></div>
+        <div class="field"><label for="txUnits">Units</label><input type="number" id="txUnits" min="0" step="0.001"></div>
+        <div class="field"><label for="txNav">NAV / price (₹)</label><input type="number" id="txNav" min="0" step="0.0001"></div>
+        <div class="field"><label for="txExit">Exit load paid (₹, redemptions)</label><input type="number" id="txExit" min="0" step="0.01"></div>
+        <div class="field" style="flex:2 1 160px"><label for="txNote">Note</label><input type="text" id="txNote"></div>
+        <div class="field" style="flex:0 0 auto"><button class="btn primary" id="txAdd" type="button">Add transaction</button></div>
+      </div>
+      <div id="txMsg"></div>
+      <p class="note">Enter any two of amount, units and NAV; the third is calculated. For a SIP, add one transaction per instalment (each is a separate tax lot) — or use “Add monthly SIP series”.</p>
+      <details><summary>Add monthly SIP series</summary>
+        <div class="row"><div class="field"><label for="ssAmt">Monthly amount (₹)</label><input type="number" id="ssAmt" min="0"></div><div class="field"><label for="ssFrom">First instalment</label><input type="date" id="ssFrom"></div><div class="field"><label for="ssTo">Last instalment (on/before)</label><input type="date" id="ssTo"></div><div class="field" style="flex:0 0 auto"><button class="btn" id="ssAdd" type="button">Add series using actual NAVs</button></div></div>
+        <p class="note">Uses the fund selected above and its historical NAV on (or the last business day before) each instalment date. Units are after 0.005% stamp duty.</p>
+      </details>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Holdings</h3><div class="scroll"><table id="holdTbl"></table></div><div id="pfNotes"></div></div>
+    <div class="card"><h3 style="margin-top:0">Realized gains &amp; tax by financial year</h3><div class="scroll"><table id="realTbl"></table></div></div>
+    <div class="card"><h3 style="margin-top:0">Transactions</h3><div class="scroll" style="max-height:420px"><table id="txTbl"></table></div>
+      <div class="btns"><button class="btn" id="expTx" type="button">Export transactions (CSV)</button><button class="btn" id="expHold" type="button">Export holdings (CSV)</button><label class="btn" for="impTx" style="margin:0">Import transactions (CSV)<input type="file" id="impTx" accept=".csv,text/csv" class="sr"></label><button class="btn danger" id="clearTx" type="button">Delete all transactions</button></div></div>
+  </section>
+
+  <!-- Assumptions -->
+  <section id="assumptions" class="sec">
+    <h2>Assumptions, tax rules &amp; charges</h2>
+    <p class="lede">Change any assumption for scenario analysis. Overrides apply only to the current law (redemptions after 1 Apr 2026); historical rule sets stay as enacted.</p>
+    <div class="grid g3">
+      <div class="card"><h3 style="margin-top:0">Your tax profile</h3><div id="taxProfileBox"></div></div>
+      <div class="card"><h3 style="margin-top:0">What-if: change the law</h3><div id="taxOverrideBox"></div></div>
+      <div class="card"><h3 style="margin-top:0">Charges</h3><div id="chargesBox"></div></div>
+    </div>
+    <div class="card"><h3 style="margin-top:0">Scenario return assumptions by category (pre-expense, % a year)</h3><div class="scroll"><table id="catScenTbl"></table></div><div class="btns"><button class="btn" id="resetCat" type="button">Reset to defaults</button></div><p class="note" id="catScenNote"></p></div>
+    <div class="card"><h3 style="margin-top:0">Configured tax rules (config/tax-rules.json)</h3><div id="rulesBox"></div></div>
+  </section>
+
+  <!-- Sources -->
+  <section id="sources" class="sec">
+    <h2>Data sources, methodology &amp; limitations</h2>
+    <div class="card" id="sourcesBox"></div>
+  </section>
+</main>
+
+<dialog id="fundDlg" aria-labelledby="fundDlgTitle">
+  <div class="dh"><h2 id="fundDlgTitle" style="margin:0"></h2><button class="btn small" type="button" id="fundDlgClose">Close</button></div>
+  <div class="db" id="fundDlgBody"></div>
+</dialog>
+
+<script src="js/util.js"></script>
+<script src="js/tax-engine.js"></script>
+<script src="js/calculator.js"></script>
+<script src="js/fund-research.js"></script>
+<script src="js/data-service.js"></script>
+<script src="js/portfolio.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
